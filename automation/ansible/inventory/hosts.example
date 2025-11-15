@@ -1,0 +1,13 @@
+# Ejemplo de inventory para Ansible
+# Copiá este archivo a 'hosts' y configurá tus hosts
+
+[windows_hosts]
+# Ejemplo de hosts Windows con WinRM configurado
+# NB036595 ansible_host=NB036595 ansible_user=Administrador ansible_password=password ansible_connection=winrm ansible_winrm_transport=ntlm
+# NB046068 ansible_host=NB046068 ansible_user=Administrador ansible_password=password ansible_connection=winrm ansible_winrm_transport=ntlm
+
+[windows_hosts:vars]
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_port=5985
+

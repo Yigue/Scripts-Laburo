@@ -1,0 +1,22 @@
+---
+# Playbook de Ansible para análisis Wi-Fi
+# NOTA: Template para uso futuro con Ansible
+
+- name: Analizar Wi-Fi en hosts Windows
+  hosts: windows_hosts
+  gather_facts: no
+  
+  tasks:
+    - name: Obtener información Wi-Fi
+      win_shell: |
+        $wlan = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*') } | Select-Object -First 1;
+        if ($wlan) {
+          netsh wlan show interfaces name="$($wlan.Name)"
+        }
+      register: wifi_info
+      
+    - name: Guardar información Wi-Fi
+      copy:
+        content: "{{ wifi_info.stdout }}"
+        dest: "C:\temp\wifi_info_{{ inventory_hostname }}.txt"
+

@@ -1,0 +1,27 @@
+---
+# Playbook de Ansible para reparación de Outlook
+# NOTA: Template para uso futuro con Ansible
+
+- name: Reparar Outlook en hosts Windows
+  hosts: windows_hosts
+  gather_facts: no
+  
+  tasks:
+    - name: Cerrar procesos de Office
+      win_shell: |
+        Get-Process -Name Outlook,MSOfficeSync -ErrorAction SilentlyContinue | Stop-Process -Force
+        
+    - name: Eliminar perfiles antiguos
+      win_shell: |
+        Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\Outlook" -Filter "*.ost" -ErrorAction SilentlyContinue | 
+        Where-Object { $_.Name -like "*op*" } | Remove-Item -Force
+        
+    - name: Reset configuración de Office
+      win_shell: |
+        Remove-Item -Path "$env:APPDATA\Microsoft\Outlook" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Office\16.0\Outlook" -Recurse -Force -ErrorAction SilentlyContinue
+        
+    - name: Limpiar índice de búsqueda
+      win_shell: |
+        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\Windows\Search\Data\*" -Recurse -Force -ErrorAction SilentlyContinue
+

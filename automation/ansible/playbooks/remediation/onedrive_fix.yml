@@ -1,0 +1,37 @@
+---
+# Playbook de Ansible para reparación de OneDrive
+# NOTA: Este es un template. Requiere configuración de Ansible para Windows.
+# Para usar, necesitás:
+# 1. Instalar Ansible: pip install ansible pywinrm
+# 2. Configurar WinRM en los hosts remotos
+# 3. Configurar inventory en automation/ansible/inventory/
+
+- name: Reparar OneDrive en hosts Windows
+  hosts: windows_hosts
+  gather_facts: no
+  
+  tasks:
+    - name: Detener procesos OneDrive
+      win_shell: |
+        Get-Process -Name OneDrive -ErrorAction SilentlyContinue | Stop-Process -Force
+        
+    - name: Reset completo de OneDrive
+      win_shell: |
+        if (Test-Path "$env:LOCALAPPDATA\Microsoft\OneDrive\onedrive.exe") {
+          & "$env:LOCALAPPDATA\Microsoft\OneDrive\onedrive.exe" /reset
+        }
+        
+    - name: Limpiar cache
+      win_shell: |
+        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\OneDrive\logs" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "$env:LOCALAPPDATA\Microsoft\OneDrive\settings" -Recurse -Force -ErrorAction SilentlyContinue
+        
+    - name: Reiniciar servicio OneSyncSvc
+      win_service:
+        name: OneSyncSvc
+        state: restarted
+        
+    - name: Iniciar OneDrive
+      win_shell: |
+        Start-Process -FilePath "$env:LOCALAPPDATA\Microsoft\OneDrive\onedrive.exe" -ErrorAction SilentlyContinue
+

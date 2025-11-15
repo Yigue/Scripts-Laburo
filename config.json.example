@@ -1,0 +1,7 @@
+{
+  "psexec_path": "PsExec.exe",
+  "remote_user": "Administrador",
+  "remote_pass": "",
+  "timeout": 30
+}
+
