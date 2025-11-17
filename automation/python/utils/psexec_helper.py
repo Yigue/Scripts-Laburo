@@ -4,7 +4,51 @@ Refactorizado desde Especificacioens.py para uso reutilizable
 """
 import subprocess
 import os
+import shutil
 from datetime import datetime
+
+
+def find_psexec(psexec_path="PsExec.exe"):
+    """
+    Busca PsExec.exe en ubicaciones comunes
+    
+    Args:
+        psexec_path: Ruta proporcionada por el usuario
+    
+    Returns:
+        str: Ruta completa a PsExec.exe o None si no se encuentra
+    """
+    # Si ya es una ruta absoluta y existe, usarla
+    if os.path.isabs(psexec_path) and os.path.isfile(psexec_path):
+        return psexec_path
+    
+    # Si es relativa y existe en el directorio actual
+    if os.path.isfile(psexec_path):
+        return os.path.abspath(psexec_path)
+    
+    # Buscar en el PATH del sistema
+    psexec_in_path = shutil.which("PsExec.exe") or shutil.which("psexec.exe")
+    if psexec_in_path:
+        return psexec_in_path
+    
+    # Buscar en ubicaciones comunes
+    common_paths = [
+        os.path.join(os.getcwd(), "PsExec.exe"),
+        os.path.join(os.getcwd(), "psexec.exe"),
+        os.path.join(os.path.expanduser("~"), "Downloads", "PsExec.exe"),
+        os.path.join(os.path.expanduser("~"), "Downloads", "psexec.exe"),
+        "C:\\PSTools\\PsExec.exe",  # Ruta común de PSTools
+        "C:\\PSTools\\psexec.exe",
+        "C:\\Sysinternals\\PsExec.exe",
+        "C:\\Tools\\PsExec.exe",
+        "C:\\Program Files\\Sysinternals\\PsExec.exe",
+    ]
+    
+    for path in common_paths:
+        if os.path.isfile(path):
+            return os.path.abspath(path)
+    
+    return None
 
 
 class PsExecHelper:
@@ -19,7 +63,16 @@ class PsExecHelper:
             remote_user: Usuario remoto para autenticación
             remote_pass: Contraseña remota (vacío si se usa LAPS)
         """
-        self.psexec_path = psexec_path
+        # Buscar PsExec automáticamente
+        found_path = find_psexec(psexec_path)
+        if found_path:
+            self.psexec_path = found_path
+            self._psexec_not_found = False
+        else:
+            # Si no se encuentra, usar la ruta proporcionada (fallará pero con mejor mensaje)
+            self.psexec_path = psexec_path
+            self._psexec_not_found = True
+        
         self.remote_user = remote_user
         self.remote_pass = remote_pass
     
@@ -36,10 +89,24 @@ class PsExecHelper:
         Returns:
             str: Salida del comando o "N/A" si falla
         """
+        # Verificar que PsExec existe
+        if self._psexec_not_found or not os.path.isfile(self.psexec_path):
+            error_msg = (
+                f"❌ PsExec.exe no encontrado.\n"
+                f"   Buscado en: {self.psexec_path}\n"
+                f"   Soluciones:\n"
+                f"   1. Descargá PsExec de: https://docs.microsoft.com/en-us/sysinternals/downloads/psexec\n"
+                f"   2. Colocalo en el directorio del script o en el PATH\n"
+                f"   3. Especificá la ruta completa en config.json"
+            )
+            if verbose:
+                print(error_msg)
+            return "N/A"
+        
         # Escapar comillas dobles en el comando para PowerShell
         escaped_command = command.replace('"', '\\"')
         cmd = (
-            f'{self.psexec_path} \\\\{hostname} -u "{self.remote_user}" -p "{self.remote_pass}" '
+            f'"{self.psexec_path}" \\\\{hostname} -u "{self.remote_user}" -p "{self.remote_pass}" '
             f'powershell -NoProfile -Command "{escaped_command}"'
         )
         
@@ -62,7 +129,17 @@ class PsExecHelper:
                 output = '\n'.join(lines).strip()
                 return output if output else "N/A"
             else:
-                error_msg = result.stderr[:100] if result.stderr else f'Código de salida: {result.returncode}'
+                error_msg = result.stderr[:200] if result.stderr else f'Código de salida: {result.returncode}'
+                
+                # Detectar errores comunes
+                if "no se reconoce" in error_msg.lower() or "not recognized" in error_msg.lower():
+                    if "PsExec" in error_msg:
+                        error_msg = (
+                            f"PsExec.exe no encontrado en el sistema.\n"
+                            f"   Verificá que PsExec.exe esté en: {self.psexec_path}\n"
+                            f"   O configurá la ruta correcta en config.json"
+                        )
+                
                 if verbose:
                     print(f"  ⚠ Error en {hostname}: {error_msg}")
                 return "N/A"
@@ -73,7 +150,7 @@ class PsExecHelper:
             return "N/A"
         except Exception as e:
             if verbose:
-                print(f"  ⚠ Excepción en {hostname}: {str(e)[:100]}")
+                print(f"  ⚠ Excepción en {hostname}: {str(e)[:200]}")
             return "N/A"
     
     def run_remote_batch(self, hostnames, command, delay=0.5):

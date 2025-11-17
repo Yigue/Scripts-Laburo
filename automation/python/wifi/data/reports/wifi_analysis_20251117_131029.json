@@ -1,0 +1,11 @@
+{
+    "nb102029": {
+        "hostname": "nb102029",
+        "timestamp": "2025-11-17T13:10:28.959245",
+        "connection": {
+            "error": "Adaptador Wi-Fi no encontrado o no conectado"
+        },
+        "signal": {},
+        "network": {}
+    }
+}
