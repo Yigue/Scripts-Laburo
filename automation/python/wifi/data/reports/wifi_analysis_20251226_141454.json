@@ -1,0 +1,11 @@
+{
+    "nb102237": {
+        "hostname": "nb102237",
+        "timestamp": "2025-12-26T14:14:49.725090",
+        "connection": {
+            "error": "Error parseando datos"
+        },
+        "signal": {},
+        "network": {}
+    }
+}

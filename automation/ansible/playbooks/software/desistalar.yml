@@ -1,0 +1,343 @@
+---
+# ============================================================================
+# PLAYBOOK DE ANSIBLE: DESINSTALAR SOFTWARE EN WINDOWS
+# ============================================================================
+# Este playbook permite desinstalar software de forma remota en equipos Windows
+# 
+# REQUISITOS PREVIOS:
+# 1. Instalar Ansible: pip install ansible pywinrm
+# 2. Configurar WinRM en los hosts remotos (ver WINRM_SETUP.md)
+# 3. Configurar inventory en automation/ansible/inventory/
+#
+# ============================================================================
+# CÓMO PROBAR MANUALMENTE EN TU EQUIPO (POWERSHELL)
+# ============================================================================
+# Si querés probar esto manualmente en tu equipo sin Ansible, seguí estos pasos:
+#
+# 1. Abrir PowerShell como Administrador
+#
+# 2. Definir las variables (ejemplo para Dell Command):
+#    $searchName = "Dell Command"
+#    $searchPublisher = "Dell Inc."  # Opcional, dejar "" si no querés filtrar
+#
+# 3. Buscar el software (TAREA 1):
+#    $apps = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | 
+#      Where-Object { 
+#        ($_.DisplayName -like "*$searchName*") -and
+#        (($searchPublisher -eq "") -or ($_.Publisher -like "*$searchPublisher*"))
+#      } | 
+#      Select-Object DisplayName, DisplayVersion, Publisher, UninstallString, PSChildName
+#    $apps | Format-Table -AutoSize
+#
+# 4. Detener procesos (TAREA 3):
+#    $processes = Get-Process | Where-Object { 
+#      $_.ProcessName -like "*$searchName*" -or
+#      $_.MainWindowTitle -like "*$searchName*"
+#    }
+#    if ($processes) { $processes | Stop-Process -Force }
+#
+# 5. Desinstalar (TAREA 4 - ejemplo para MSI):
+#    # Si es MSI (tiene GUID):
+#    $productCode = $apps[0].PSChildName  # El GUID del producto
+#    msiexec.exe /x $productCode /quiet /norestart
+#
+#    # O si es EXE:
+#    $uninstallString = $apps[0].UninstallString
+#    $exePath = ($uninstallString -split '\.exe')[0] + '.exe'
+#    & $exePath /S /silent /quiet
+#
+# 6. Verificar (TAREA 5):
+#    $stillInstalled = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | 
+#      Where-Object { $_.DisplayName -like "*$searchName*" }
+#    if ($stillInstalled) { Write-Host "Aún instalado" } else { Write-Host "Desinstalado" }
+#
+# ============================================================================
+# USO CON ANSIBLE
+# ============================================================================
+# Ejecutar el playbook completo: 
+#   ansible-playbook -i inventory/hosts playbooks/software/desistalar.yml
+#
+# EJEMPLO PARA DELL COMMAND:
+# - Cuando te pregunte el nombre: "Dell Command"
+# - Cuando te pregunte el publisher: "Dell Inc." (opcional)
+# ============================================================================
+
+- name: Desinstalar software en hosts Windows
+  # hosts: Define en qué equipos se ejecutará el playbook
+  # windows_hosts: Grupo de hosts definido en el archivo inventory/hosts
+  hosts: windows_hosts
+  # gather_facts: no = No recopila información del sistema (más rápido)
+  gather_facts: no
+
+  # ========================================================================
+  # VARIABLES PREDEFINIDAS
+  # ========================================================================
+  # Estas variables se pueden definir aquí o se pedirán interactivamente
+  vars:
+    # Nombre del software a desinstalar (búsqueda parcial)
+    # Ejemplo: "Dell Command" encontrará "Dell Command | Update"
+    software_name: ""
+    # Publisher del software (opcional, para mayor precisión)
+    # Ejemplo: "Dell Inc." para filtrar solo software de Dell
+    software_publisher: ""
+  
+  # ========================================================================
+  # PROMPTS INTERACTIVOS
+  # ========================================================================
+  # Si las variables están vacías, Ansible pedirá estos valores al ejecutar
+  vars_prompt:
+    - name: software_name
+      prompt: "Nombre del software a desinstalar (búsqueda parcial, ej: 'Office' o 'Chrome')"
+      default: ""
+      private: no  # no = El texto se muestra al escribir (no es contraseña)
+    - name: software_publisher
+      prompt: "Publisher del software (opcional, para mayor precisión)"
+      default: ""
+      private: no
+  
+  # ========================================================================
+  # TAREAS DEL PLAYBOOK
+  # ========================================================================
+  tasks:
+    # ------------------------------------------------------------------------
+    # TAREA 1: Buscar software instalado en el registro de Windows
+    # ------------------------------------------------------------------------
+    - name: Buscar software instalado
+      # win_shell: Ejecuta comandos PowerShell en el equipo remoto
+      win_shell: |
+        # Obtener las variables de Ansible y guardarlas en variables PowerShell
+        $searchName = "{{ software_name }}"
+        $searchPublisher = "{{ software_publisher }}"
+        
+        # Buscar en el registro de Windows todas las aplicaciones instaladas
+        # HKLM = HKEY_LOCAL_MACHINE (registro del sistema)
+        # Uninstall\* = Todas las claves de desinstalación
+        $apps = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | 
+          # Filtrar aplicaciones que coincidan con el nombre buscado
+          Where-Object { 
+            # Buscar en DisplayName (nombre visible del software)
+            # -like "*texto*" = búsqueda parcial (contiene el texto)
+            ($_.DisplayName -like "*$searchName*") -and
+            # Si se especificó publisher, también filtrar por ese campo
+            # Si no se especificó (vacío), no filtrar por publisher
+            (($searchPublisher -eq "") -or ($_.Publisher -like "*$searchPublisher*"))
+          } | 
+          # Seleccionar solo los campos que necesitamos
+          Select-Object DisplayName, DisplayVersion, Publisher, UninstallString, PSChildName
+          # DisplayName: Nombre del software
+          # DisplayVersion: Versión instalada
+          # Publisher: Fabricante (ej: "Dell Inc.")
+          # UninstallString: Comando para desinstalar
+          # PSChildName: Código del producto (GUID para MSI)
+        
+        # Si se encontraron aplicaciones
+        if ($apps) {
+          # Mostrar las aplicaciones encontradas en formato tabla
+          Write-Host "`n=== Software encontrado ===" -ForegroundColor Cyan
+          $apps | Format-Table -AutoSize
+          
+          # Guardar la lista en un archivo JSON temporal para usarlo después
+          # $env:TEMP = Carpeta temporal del usuario (ej: C:\Users\Usuario\AppData\Local\Temp)
+          $apps | ConvertTo-Json -Depth 3 | Out-File -FilePath "$env:TEMP\apps_to_uninstall.json" -Encoding UTF8
+          
+          # exit 0 = Éxito (se encontró software)
+          exit 0
+        } else {
+          # No se encontró software que coincida
+          Write-Host "No se encontró software que coincida con '$searchName'" -ForegroundColor Yellow
+          # exit 1 = Error (no se encontró nada)
+          exit 1
+        }
+      # register: Guarda el resultado de este comando para usarlo después
+      register: found_software
+      # ignore_errors: yes = Continuar aunque haya error (no detener el playbook)
+      ignore_errors: yes
+      
+    # ------------------------------------------------------------------------
+    # TAREA 2: Mostrar en consola el software encontrado
+    # ------------------------------------------------------------------------
+    - name: Mostrar software encontrado
+      # debug: Muestra información en la consola de Ansible
+      debug:
+        # stdout_lines: Líneas de salida del comando anterior
+        msg: "{{ found_software.stdout_lines }}"
+      # when: Solo ejecutar esta tarea si la anterior fue exitosa (rc = return code = 0)
+      when: found_software.rc == 0
+      
+    # ------------------------------------------------------------------------
+    # TAREA 3: Detener procesos del software antes de desinstalar
+    # ------------------------------------------------------------------------
+    # IMPORTANTE: Algunos programas no se pueden desinstalar si están ejecutándose
+    # Por eso detenemos todos los procesos relacionados primero
+    - name: Detener procesos relacionados antes de desinstalar
+      win_shell: |
+        # Buscar todos los procesos que puedan estar relacionados con el software
+        $processes = Get-Process | Where-Object { 
+          # Buscar por nombre del proceso (ej: "DellCommandUpdate.exe")
+          $_.ProcessName -like "*{{ software_name }}*" -or
+          # O buscar por título de ventana (ej: "Dell Command | Update")
+          $_.MainWindowTitle -like "*{{ software_name }}*"
+        }
+        
+        # Si se encontraron procesos
+        if ($processes) {
+          Write-Host "Deteniendo procesos relacionados..." -ForegroundColor Yellow
+          # Detener los procesos de forma forzada
+          # -Force = Forzar cierre
+          # -ErrorAction SilentlyContinue = Ignorar errores si el proceso ya no existe
+          $processes | Stop-Process -Force -ErrorAction SilentlyContinue
+          
+          # Esperar 3 segundos para que los procesos se cierren completamente
+          Start-Sleep -Seconds 3
+        }
+      # ignore_errors: Continuar aunque falle (puede que no haya procesos ejecutándose)
+      ignore_errors: yes
+      
+    # ------------------------------------------------------------------------
+    # TAREA 4: Desinstalar el software encontrado
+    # ------------------------------------------------------------------------
+    # Esta es la tarea principal que ejecuta la desinstalación
+    - name: Desinstalar software usando UninstallString
+      win_shell: |
+        # Cargar la lista de aplicaciones desde el archivo JSON guardado anteriormente
+        $apps = Get-Content "$env:TEMP\apps_to_uninstall.json" | ConvertFrom-Json
+        
+        # Procesar cada aplicación encontrada (puede haber varias si hay coincidencias)
+        foreach ($app in $apps) {
+          # Extraer información importante de cada aplicación
+          $displayName = $app.DisplayName          # Nombre del software
+          $uninstallString = $app.UninstallString  # Comando para desinstalar
+          $productCode = $app.PSChildName          # Código del producto (GUID para MSI)
+          
+          Write-Host "`nDesinstalando: $displayName" -ForegroundColor Cyan
+          
+          # ====================================================================
+          # MÉTODO 1: Desinstalación de MSI (Microsoft Installer)
+          # ====================================================================
+          # Los archivos .msi se desinstalan con msiexec.exe
+          # Se detecta si es MSI si:
+          # - El UninstallString contiene "msiexec"
+          # - O el ProductCode es un GUID (formato: {12345678-1234-1234-1234-123456789012})
+          if ($uninstallString -like "*msiexec*" -or $productCode -match '^{[A-F0-9-]+}$') {
+            # Si tenemos el ProductCode directamente (es un GUID)
+            if ($productCode -match '^{[A-F0-9-]+}$') {
+              # Construir comando msiexec:
+              # /x = Desinstalar
+              # $productCode = GUID del producto
+              # /quiet = Modo silencioso (sin ventanas)
+              # /norestart = No reiniciar automáticamente
+              $msiArgs = "/x $productCode /quiet /norestart"
+              Write-Host "Ejecutando: msiexec $msiArgs" -ForegroundColor Gray
+              # Ejecutar msiexec y esperar a que termine
+              # -Wait = Esperar a que termine
+              # -PassThru = Devolver el objeto del proceso
+              # -NoNewWindow = No abrir nueva ventana
+              $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
+            } 
+            # Si no tenemos ProductCode, intentar extraerlo del UninstallString
+            else {
+              # El UninstallString de MSI suele ser: "msiexec.exe /I{GUID}"
+              # Dividimos por "/I" y tomamos la última parte (el GUID)
+              $guid = ($uninstallString -split '/I')[-1].Trim()
+              # Verificar que sea un GUID válido
+              if ($guid -match '^{[A-F0-9-]+}$') {
+                $msiArgs = "/x $guid /quiet /norestart"
+                Write-Host "Ejecutando: msiexec $msiArgs" -ForegroundColor Gray
+                $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -NoNewWindow
+              }
+            }
+          } 
+          # ====================================================================
+          # MÉTODO 2: Desinstalación de EXE (Instalador ejecutable)
+          # ====================================================================
+          # Si no es MSI, probablemente sea un .exe
+          else {
+            # Limpiar el UninstallString (quitar comillas)
+            $cleanUninstall = $uninstallString -replace '"', ''
+            
+            # Verificar que sea un archivo .exe
+            if ($cleanUninstall -like "*.exe*") {
+              # Separar la ruta del ejecutable de los argumentos
+              # Ejemplo: "C:\Program Files\App\uninstall.exe /S"
+              # $exePath = "C:\Program Files\App\uninstall.exe"
+              # $args = " /S"
+              $exePath = ($cleanUninstall -split '\.exe')[0] + '.exe'
+              $args = ($cleanUninstall -split '\.exe')[1]
+              
+              # Agregar argumentos para instalación silenciosa si no los tiene
+              # /S, /silent, /quiet = Modo silencioso (depende del instalador)
+              if ($args) {
+                $args = $args.Trim() + " /S /silent /quiet"
+              } else {
+                $args = "/S /silent /quiet"
+              }
+              
+              Write-Host "Ejecutando: $exePath $args" -ForegroundColor Gray
+              # Ejecutar el desinstalador
+              $process = Start-Process -FilePath $exePath -ArgumentList $args -Wait -PassThru -NoNewWindow
+            }
+          }
+          
+          # Esperar 5 segundos para que la desinstalación se complete
+          Start-Sleep -Seconds 5
+          
+          # ====================================================================
+          # VERIFICACIÓN: Comprobar si se desinstaló correctamente
+          # ====================================================================
+          # Buscar en el registro si la aplicación aún existe
+          $stillInstalled = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | 
+            Where-Object { $_.DisplayName -eq $displayName }
+          
+          # Si no se encuentra en el registro, se desinstaló correctamente
+          if (-not $stillInstalled) {
+            Write-Host "✅ $displayName desinstalado correctamente" -ForegroundColor Green
+          } else {
+            # Si aún está en el registro, puede que necesite reinicio
+            Write-Host "⚠️ $displayName aún está instalado (puede requerir reinicio)" -ForegroundColor Yellow
+          }
+        }
+      # Solo ejecutar si se encontró software en la tarea 1
+      when: found_software.rc == 0
+      # Guardar el resultado para mostrarlo después
+      register: uninstall_result
+      
+    # ------------------------------------------------------------------------
+    # TAREA 5: Verificación final de la desinstalación
+    # ------------------------------------------------------------------------
+    # Esta tarea hace una verificación final para confirmar que todo se desinstaló
+    - name: Verificar desinstalación
+      win_shell: |
+        # Obtener el nombre de búsqueda original
+        $searchName = "{{ software_name }}"
+        
+        # Buscar nuevamente en el registro si queda algo con ese nombre
+        $stillInstalled = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | 
+          Where-Object { $_.DisplayName -like "*$searchName*" }
+        
+        # Si aún hay software instalado
+        if ($stillInstalled) {
+          Write-Host "`n⚠️ Software aún instalado:" -ForegroundColor Yellow
+          # Mostrar qué quedó instalado
+          $stillInstalled | Select-Object DisplayName, DisplayVersion | Format-Table -AutoSize
+          # exit 1 = Error (no se desinstaló todo)
+          exit 1
+        } else {
+          # Todo se desinstaló correctamente
+          Write-Host "`n✅ Software desinstalado correctamente" -ForegroundColor Green
+          # exit 0 = Éxito
+          exit 0
+        }
+      # Guardar el resultado de la verificación
+      register: verify_uninstall
+      # Continuar aunque haya error (puede que quede algo instalado)
+      ignore_errors: yes
+      
+    # ------------------------------------------------------------------------
+    # TAREA 6: Mostrar resumen final en la consola de Ansible
+    # ------------------------------------------------------------------------
+    - name: Mostrar resultado de la desinstalación
+      # debug: Muestra información en la consola
+      debug:
+        # Mostrar las líneas de salida del proceso de desinstalación
+        # Si no hay resultado (no se encontró software), mostrar mensaje alternativo
+        msg: "{{ uninstall_result.stdout_lines if uninstall_result is defined else ['No se encontró software para desinstalar'] }}"

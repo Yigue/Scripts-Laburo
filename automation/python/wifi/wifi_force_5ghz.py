@@ -11,7 +11,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from utils.psexec_helper import PsExecHelper
-from utils.common import save_report, clear_screen, load_config
+from utils.common import save_report, clear_screen, load_config, get_credentials
 
 
 def force_5ghz_windows(helper, hostname, target_ssid=None):
@@ -267,12 +267,6 @@ def main():
     
     if choice == "1":
         # Windows remoto
-        helper = PsExecHelper(
-            psexec_path=config.get("psexec_path", "PsExec.exe"),
-            remote_user=config.get("remote_user", "Administrador"),
-            remote_pass=config.get("remote_pass", "")
-        )
-        
         print("\n📦 Ingresá los inventarios (NBxxxxxx) separados por espacio")
         inv_list = input("Ej: NB100232 NB100549\n\nInventarios: ").strip().split()
         
@@ -283,6 +277,14 @@ def main():
             input("\nPresioná ENTER para salir...")
             return
         
+        # Solicitar credenciales
+        user, password = get_credentials()
+        
+        helper = PsExecHelper(
+            psexec_path=config.get("psexec_path", "PsExec.exe"),
+            remote_user=user,
+            remote_pass=password
+        )
         all_results = {}
         
         for inv in inv_list:

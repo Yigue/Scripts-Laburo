@@ -1,0 +1,13 @@
+# Inventory para probar Ansible en localhost (tu equipo local)
+# Este archivo permite ejecutar playbooks en tu propia máquina
+
+[windows_hosts]
+# localhost = tu equipo actual
+localhost ansible_connection=local
+
+[windows_hosts:vars]
+# Para localhost no necesitamos WinRM, usamos conexión local
+ansible_connection=local
+# Usar PowerShell directamente
+ansible_shell_type=powershell
+

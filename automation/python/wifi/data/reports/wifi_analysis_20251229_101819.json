@@ -1,0 +1,12 @@
+{
+    "nb101344": {
+        "hostname": "nb101344",
+        "timestamp": "2025-12-29T10:18:14.626955",
+        "connection": {
+            "error": "Error parseando datos: Expecting value: line 1 column 1 (char 0)"
+        },
+        "signal": {},
+        "network": {},
+        "connectivity": []
+    }
+}

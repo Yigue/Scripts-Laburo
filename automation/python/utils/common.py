@@ -3,6 +3,7 @@ Utilidades comunes para los scripts de automatización
 """
 import json
 import os
+import getpass
 from datetime import datetime
 
 
@@ -77,4 +78,68 @@ def format_size(size_bytes):
             return f"{size_bytes:.2f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.2f} PB"
+
+
+def get_credentials(default_user="Administrador", prompt_user=True):
+    """
+    Solicita credenciales de administrador al usuario
+    
+    Args:
+        default_user: Usuario por defecto
+        prompt_user: Si True, pregunta por el usuario; si False, usa el default
+    
+    Returns:
+        tuple: (usuario, contraseña)
+    """
+    print("\n🔐 Credenciales de Administrador")
+    print("-" * 40)
+    
+    if prompt_user:
+        user = input(f"Usuario [{default_user}]: ").strip()
+        if not user:
+            user = default_user
+    else:
+        user = default_user
+        print(f"Usuario: {user}")
+    
+    # Usar getpass para ocultar la contraseña
+    try:
+        password = getpass.getpass("Contraseña: ")
+    except Exception:
+        # Fallback si getpass no funciona (ej: en algunos IDEs)
+        password = input("Contraseña: ")
+    
+    if not password:
+        print("⚠️  Contraseña vacía - algunas operaciones pueden fallar")
+    
+    return user, password
+
+
+def get_credentials_cached():
+    """
+    Solicita credenciales y las guarda en memoria para la sesión actual
+    No guarda en disco por seguridad
+    
+    Returns:
+        tuple: (usuario, contraseña)
+    """
+    if not hasattr(get_credentials_cached, '_cached'):
+        get_credentials_cached._cached = None
+    
+    if get_credentials_cached._cached is None:
+        get_credentials_cached._cached = get_credentials()
+    else:
+        print(f"\n🔐 Usando credenciales en caché (Usuario: {get_credentials_cached._cached[0]})")
+        cambiar = input("¿Cambiar credenciales? (S/N) [N]: ").strip().upper()
+        if cambiar == "S":
+            get_credentials_cached._cached = get_credentials()
+    
+    return get_credentials_cached._cached
+
+
+def clear_cached_credentials():
+    """Limpia las credenciales en caché"""
+    if hasattr(get_credentials_cached, '_cached'):
+        get_credentials_cached._cached = None
+        print("🔐 Credenciales en caché eliminadas")
 

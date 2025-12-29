@@ -1,18 +1,244 @@
 """
 Script analizador de Wi-Fi
 Recolecta información detallada de conexión Wi-Fi para diagnóstico
+Funciona local y remotamente
 """
 import sys
 import os
 import json
+import subprocess
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from utils.psexec_helper import PsExecHelper
-from utils.common import save_report, clear_screen, load_config
+from utils.common import clear_screen, load_config, get_credentials
 
 
-def analyze_wifi(helper, hostname):
+def get_report_dir():
+    """Obtiene el directorio de reportes (relativo al script)"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "data", "reports")
+
+
+def save_wifi_report(data, filename_prefix="wifi_analysis"):
+    """Guarda un reporte de Wi-Fi"""
+    report_dir = get_report_dir()
+    os.makedirs(report_dir, exist_ok=True)
+    
+    filepath = os.path.join(
+        report_dir, 
+        f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+    
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+    
+    return filepath
+
+
+def analyze_wifi_local():
+    """
+    Analiza la conexión Wi-Fi del equipo local
+    
+    Returns:
+        dict: Información de Wi-Fi recolectada
+    """
+    print("\n📡 Analizando Wi-Fi localmente...")
+    
+    hostname = os.environ.get('COMPUTERNAME', 'LOCAL')
+    
+    wifi_data = {
+        "hostname": hostname,
+        "timestamp": datetime.now().isoformat(),
+        "connection": {},
+        "signal": {},
+        "network": {},
+        "connectivity": []
+    }
+    
+    # Obtener información de la interfaz Wi-Fi
+    print("  → Recolectando información de conexión...")
+    interface_cmd = """
+    try {
+        $wlanOutput = netsh wlan show interfaces
+        
+        # Parsear la salida línea por línea
+        $ssid = ""
+        $bssid = ""
+        $signal = ""
+        $radio = ""
+        $channel = ""
+        $speed = ""
+        $state = ""
+        
+        foreach ($line in $wlanOutput -split "`n") {
+            $line = $line.Trim()
+            if ($line -match "^SSID\s*:\s*(.+)$" -and $line -notmatch "BSSID") {
+                $ssid = $matches[1].Trim()
+            }
+            elseif ($line -match "^BSSID\s*:\s*(.+)$") {
+                $bssid = $matches[1].Trim()
+            }
+            elseif ($line -match "^Se.+al\s*:\s*(\d+)") {
+                $signal = $matches[1].Trim()
+            }
+            elseif ($line -match "^Signal\s*:\s*(\d+)") {
+                $signal = $matches[1].Trim()
+            }
+            elseif ($line -match "^Radio type\s*:\s*(.+)$" -or $line -match "^Tipo de radio\s*:\s*(.+)$") {
+                $radio = $matches[1].Trim()
+            }
+            elseif ($line -match "^Channel\s*:\s*(\d+)$" -or $line -match "^Canal\s*:\s*(\d+)$") {
+                $channel = $matches[1].Trim()
+            }
+            elseif ($line -match "^Receive rate.*:\s*([\d.]+)") {
+                $speed = $matches[1].Trim()
+            }
+            elseif ($line -match "^Velocidad de recepci.+n.*:\s*([\d.]+)") {
+                $speed = $matches[1].Trim()
+            }
+            elseif ($line -match "^State\s*:\s*(.+)$" -or $line -match "^Estado\s*:\s*(.+)$") {
+                $state = $matches[1].Trim()
+            }
+        }
+        
+        if ($ssid -or $state -eq "connected" -or $state -eq "conectado") {
+            @{
+                SSID = $ssid
+                BSSID = $bssid
+                Signal = $signal
+                RadioType = $radio
+                Channel = $channel
+                Speed = $speed
+                State = $state
+            } | ConvertTo-Json
+        } else {
+            "NO_WIFI_CONNECTED"
+        }
+    } catch {
+        "ERROR: $_"
+    }
+    """
+    
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", interface_cmd],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        output = result.stdout.strip()
+        
+        if "NO_WIFI_CONNECTED" in output:
+            wifi_data["connection"]["error"] = "No hay conexión Wi-Fi activa"
+        elif "ERROR:" in output:
+            wifi_data["connection"]["error"] = output
+        else:
+            try:
+                wifi_info = json.loads(output)
+                wifi_data["connection"] = {
+                    "ssid": wifi_info.get("SSID", "N/A"),
+                    "bssid": wifi_info.get("BSSID", "N/A"),
+                    "state": wifi_info.get("State", "N/A")
+                }
+                wifi_data["signal"] = {
+                    "strength_percent": wifi_info.get("Signal", "N/A"),
+                    "rssi": calculate_rssi(wifi_info.get("Signal", "0")),
+                    "quality": classify_signal(wifi_info.get("Signal", "0"))
+                }
+                wifi_data["network"] = {
+                    "band": detect_band(wifi_info.get("RadioType", "")),
+                    "channel": wifi_info.get("Channel", "N/A"),
+                    "speed_mbps": wifi_info.get("Speed", "N/A"),
+                    "radio_type": wifi_info.get("RadioType", "N/A")
+                }
+            except json.JSONDecodeError as e:
+                wifi_data["connection"]["error"] = f"Error parseando datos: {str(e)[:50]}"
+    except Exception as e:
+        wifi_data["connection"]["error"] = f"Error ejecutando comando: {str(e)[:50]}"
+    
+    # Obtener información de red (IP, Gateway, DNS)
+    if "error" not in wifi_data["connection"]:
+        print("  → Recolectando información de red...")
+        network_cmd = """
+        try {
+            $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
+                $_.InterfaceAlias -notlike '*vEthernet*' -and 
+                $_.InterfaceAlias -notlike '*Loopback*' -and 
+                $_.IPAddress -notlike '169.254.*' 
+            } | Select-Object -First 1).IPAddress
+            
+            $gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop
+            $dns = (Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.ServerAddresses } | Select-Object -First 1).ServerAddresses -join ', '
+            
+            @{
+                IP = $ip
+                Gateway = $gateway
+                DNS = $dns
+            } | ConvertTo-Json
+        } catch {
+            "ERROR: $_"
+        }
+        """
+        
+        try:
+            net_result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", network_cmd],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if net_result.returncode == 0 and "ERROR:" not in net_result.stdout:
+                try:
+                    net_info = json.loads(net_result.stdout.strip())
+                    wifi_data["network"].update({
+                        "ip": net_info.get("IP", "N/A"),
+                        "gateway": net_info.get("Gateway", "N/A"),
+                        "dns": net_info.get("DNS", "N/A")
+                    })
+                except:
+                    pass
+        except:
+            pass
+        
+        # Test de conectividad
+        print("  → Probando conectividad...")
+        ping_cmd = """
+        $targets = @('8.8.8.8', '1.1.1.1', 'google.com')
+        $results = @()
+        foreach ($target in $targets) {
+            $ping = Test-Connection -ComputerName $target -Count 1 -Quiet -ErrorAction SilentlyContinue
+            $results += @{
+                Target = $target
+                Success = $ping
+            }
+        }
+        $results | ConvertTo-Json
+        """
+        
+        try:
+            ping_result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ping_cmd],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if ping_result.returncode == 0:
+                try:
+                    ping_data = json.loads(ping_result.stdout.strip())
+                    wifi_data["connectivity"] = ping_data if isinstance(ping_data, list) else [ping_data]
+                except:
+                    pass
+        except:
+            pass
+    
+    return wifi_data
+
+
+def analyze_wifi_remote(helper, hostname):
     """
     Analiza la conexión Wi-Fi del equipo remoto
     
@@ -30,44 +256,82 @@ def analyze_wifi(helper, hostname):
         "timestamp": datetime.now().isoformat(),
         "connection": {},
         "signal": {},
-        "network": {}
+        "network": {},
+        "connectivity": []
     }
     
-    # Obtener información básica de la interfaz Wi-Fi
+    # Obtener información de la interfaz Wi-Fi
     print("  → Recolectando información de conexión...")
     interface_cmd = """
-    $wlan = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*' -or $_.InterfaceDescription -like '*WLAN*') } | Select-Object -First 1;
-    if ($wlan) {
-        $wlanInfo = netsh wlan show interfaces name="$($wlan.Name)";
-        $ssid = ($wlanInfo | Select-String 'SSID').ToString() -replace '.*SSID\\s*:\\s*', '';
-        $bssid = ($wlanInfo | Select-String 'BSSID').ToString() -replace '.*BSSID\\s*:\\s*', '';
-        $signal = ($wlanInfo | Select-String 'Signal').ToString() -replace '.*Signal\\s*:\\s*', '' -replace '%', '';
-        $radio = ($wlanInfo | Select-String 'Radio type').ToString() -replace '.*Radio type\\s*:\\s*', '';
-        $channel = ($wlanInfo | Select-String 'Channel').ToString() -replace '.*Channel\\s*:\\s*', '';
-        $speed = ($wlanInfo | Select-String 'Receive rate|Transmit rate').ToString() -replace '.*rate\\s*:\\s*', '' -replace '\\s+Mbps', '';
-        [PSCustomObject]@{
-            SSID = $ssid.Trim();
-            BSSID = $bssid.Trim();
-            Signal = $signal.Trim();
-            RadioType = $radio.Trim();
-            Channel = $channel.Trim();
-            Speed = $speed.Trim();
-            InterfaceName = $wlan.Name
-        } | ConvertTo-Json
-    } else {
-        'No Wi-Fi adapter found'
+    try {
+        $wlanOutput = netsh wlan show interfaces
+        
+        $ssid = ""
+        $bssid = ""
+        $signal = ""
+        $radio = ""
+        $channel = ""
+        $speed = ""
+        $state = ""
+        
+        foreach ($line in $wlanOutput -split "`n") {
+            $line = $line.Trim()
+            if ($line -match "^SSID\\s*:\\s*(.+)$" -and $line -notmatch "BSSID") {
+                $ssid = $matches[1].Trim()
+            }
+            elseif ($line -match "^BSSID\\s*:\\s*(.+)$") {
+                $bssid = $matches[1].Trim()
+            }
+            elseif ($line -match "^Se.+al\\s*:\\s*(\\d+)" -or $line -match "^Signal\\s*:\\s*(\\d+)") {
+                $signal = $matches[1].Trim()
+            }
+            elseif ($line -match "^Radio type\\s*:\\s*(.+)$" -or $line -match "^Tipo de radio\\s*:\\s*(.+)$") {
+                $radio = $matches[1].Trim()
+            }
+            elseif ($line -match "^Channel\\s*:\\s*(\\d+)$" -or $line -match "^Canal\\s*:\\s*(\\d+)$") {
+                $channel = $matches[1].Trim()
+            }
+            elseif ($line -match "^Receive rate.*:\\s*([\\d.]+)" -or $line -match "^Velocidad de recepci.+n.*:\\s*([\\d.]+)") {
+                $speed = $matches[1].Trim()
+            }
+            elseif ($line -match "^State\\s*:\\s*(.+)$" -or $line -match "^Estado\\s*:\\s*(.+)$") {
+                $state = $matches[1].Trim()
+            }
+        }
+        
+        if ($ssid -or $state -eq "connected" -or $state -eq "conectado") {
+            @{
+                SSID = $ssid
+                BSSID = $bssid
+                Signal = $signal
+                RadioType = $radio
+                Channel = $channel
+                Speed = $speed
+                State = $state
+            } | ConvertTo-Json
+        } else {
+            "NO_WIFI_CONNECTED"
+        }
+    } catch {
+        "ERROR: $_"
     }
     """
     
     result = helper.run_remote(hostname, interface_cmd)
     
-    if result != "N/A" and "No Wi-Fi adapter" not in result:
+    if result == "N/A":
+        wifi_data["connection"]["error"] = "No se pudo conectar al equipo remoto"
+    elif "NO_WIFI_CONNECTED" in result:
+        wifi_data["connection"]["error"] = "No hay conexión Wi-Fi activa"
+    elif "ERROR:" in result:
+        wifi_data["connection"]["error"] = result
+    else:
         try:
             wifi_info = json.loads(result)
             wifi_data["connection"] = {
                 "ssid": wifi_info.get("SSID", "N/A"),
                 "bssid": wifi_info.get("BSSID", "N/A"),
-                "interface": wifi_info.get("InterfaceName", "N/A")
+                "state": wifi_info.get("State", "N/A")
             }
             wifi_data["signal"] = {
                 "strength_percent": wifi_info.get("Signal", "N/A"),
@@ -77,60 +341,69 @@ def analyze_wifi(helper, hostname):
             wifi_data["network"] = {
                 "band": detect_band(wifi_info.get("RadioType", "")),
                 "channel": wifi_info.get("Channel", "N/A"),
-                "speed_mbps": wifi_info.get("Speed", "N/A")
+                "speed_mbps": wifi_info.get("Speed", "N/A"),
+                "radio_type": wifi_info.get("RadioType", "N/A")
             }
-        except:
-            wifi_data["connection"]["error"] = "Error parseando datos"
-    else:
-        wifi_data["connection"]["error"] = "Adaptador Wi-Fi no encontrado o no conectado"
+        except json.JSONDecodeError as e:
+            wifi_data["connection"]["error"] = f"Error parseando datos: {str(e)[:50]}"
     
-    # Obtener información de red (IP, Gateway, DNS)
-    print("  → Recolectando información de red...")
-    network_cmd = """
-    $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike '*vEthernet*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress;
-    $gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object -First 1).NextHop;
-    $dns = (Get-DnsClientServerAddress -AddressFamily IPv4 | Select-Object -First 1).ServerAddresses -join ', ';
-    [PSCustomObject]@{
-        IP = $ip;
-        Gateway = $gateway;
-        DNS = $dns
-    } | ConvertTo-Json
-    """
-    
-    network_result = helper.run_remote(hostname, network_cmd)
-    if network_result != "N/A":
-        try:
-            net_info = json.loads(network_result)
-            wifi_data["network"].update({
-                "ip": net_info.get("IP", "N/A"),
-                "gateway": net_info.get("Gateway", "N/A"),
-                "dns": net_info.get("DNS", "N/A")
-            })
-        except:
-            pass
-    
-    # Test de conectividad
-    print("  → Probando conectividad...")
-    ping_cmd = """
-    $targets = @('8.8.8.8', '1.1.1.1', 'google.com');
-    $results = @();
-    foreach ($target in $targets) {
-        $ping = Test-Connection -ComputerName $target -Count 2 -Quiet;
-        $results += [PSCustomObject]@{
-            Target = $target;
-            Success = $ping
+    # Obtener información de red
+    if "error" not in wifi_data["connection"]:
+        print("  → Recolectando información de red...")
+        network_cmd = """
+        try {
+            $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
+                $_.InterfaceAlias -notlike '*vEthernet*' -and 
+                $_.IPAddress -notlike '169.254.*' 
+            } | Select-Object -First 1).IPAddress
+            
+            $gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop
+            $dns = (Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.ServerAddresses } | Select-Object -First 1).ServerAddresses -join ', '
+            
+            @{
+                IP = $ip
+                Gateway = $gateway
+                DNS = $dns
+            } | ConvertTo-Json
+        } catch {
+            "ERROR: $_"
         }
-    }
-    $results | ConvertTo-Json
-    """
-    
-    ping_result = helper.run_remote(hostname, ping_cmd)
-    if ping_result != "N/A":
-        try:
-            ping_data = json.loads(ping_result)
-            wifi_data["connectivity"] = ping_data if isinstance(ping_data, list) else [ping_data]
-        except:
-            wifi_data["connectivity"] = []
+        """
+        
+        network_result = helper.run_remote(hostname, network_cmd)
+        if network_result != "N/A" and "ERROR:" not in network_result:
+            try:
+                net_info = json.loads(network_result)
+                wifi_data["network"].update({
+                    "ip": net_info.get("IP", "N/A"),
+                    "gateway": net_info.get("Gateway", "N/A"),
+                    "dns": net_info.get("DNS", "N/A")
+                })
+            except:
+                pass
+        
+        # Test de conectividad
+        print("  → Probando conectividad...")
+        ping_cmd = """
+        $targets = @('8.8.8.8', '1.1.1.1', 'google.com')
+        $results = @()
+        foreach ($target in $targets) {
+            $ping = Test-Connection -ComputerName $target -Count 1 -Quiet -ErrorAction SilentlyContinue
+            $results += @{
+                Target = $target
+                Success = $ping
+            }
+        }
+        $results | ConvertTo-Json
+        """
+        
+        ping_result = helper.run_remote(hostname, ping_cmd)
+        if ping_result != "N/A":
+            try:
+                ping_data = json.loads(ping_result)
+                wifi_data["connectivity"] = ping_data if isinstance(ping_data, list) else [ping_data]
+            except:
+                pass
     
     return wifi_data
 
@@ -138,19 +411,18 @@ def analyze_wifi(helper, hostname):
 def calculate_rssi(signal_percent):
     """Calcula RSSI aproximado desde porcentaje de señal"""
     try:
-        percent = int(signal_percent)
-        # RSSI típico va de -100 (peor) a 0 (mejor)
-        # Asumimos que 100% = -30 dBm, 0% = -100 dBm
+        percent = int(str(signal_percent).replace("%", ""))
+        # RSSI típico va de -100 (peor) a -30 (mejor)
         rssi = -100 + (percent * 0.7)
         return round(rssi)
-    except:
+    except (ValueError, TypeError):
         return "N/A"
 
 
 def classify_signal(signal_percent):
     """Clasifica la calidad de la señal"""
     try:
-        percent = int(signal_percent)
+        percent = int(str(signal_percent).replace("%", ""))
         if percent >= 80:
             return "Excelente"
         elif percent >= 60:
@@ -161,22 +433,47 @@ def classify_signal(signal_percent):
             return "Débil"
         else:
             return "Muy débil"
-    except:
+    except (ValueError, TypeError):
         return "N/A"
 
 
 def detect_band(radio_type):
     """Detecta la banda (2.4 GHz o 5 GHz) desde el tipo de radio"""
-    radio_lower = radio_type.lower()
-    if "802.11a" in radio_lower or "802.11ac" in radio_lower or "802.11ax" in radio_lower or "5" in radio_lower:
-        return "5 GHz"
-    elif "802.11b" in radio_lower or "802.11g" in radio_lower or "802.11n" in radio_lower:
-        # 802.11n puede ser ambos, pero si no especifica, asumimos 2.4
-        if "5" in radio_lower:
-            return "5 GHz"
-        return "2.4 GHz"
-    else:
+    if not radio_type:
         return "Desconocido"
+    
+    radio_lower = radio_type.lower()
+    
+    # 5 GHz indicators
+    if any(x in radio_lower for x in ["802.11ac", "802.11ax", "802.11a", "5ghz", "5 ghz"]):
+        return "5 GHz"
+    
+    # 2.4 GHz indicators
+    if any(x in radio_lower for x in ["802.11b", "802.11g", "2.4ghz", "2.4 ghz"]):
+        return "2.4 GHz"
+    
+    # 802.11n puede ser ambos
+    if "802.11n" in radio_lower:
+        return "2.4/5 GHz (n)"
+    
+    return "Desconocido"
+
+
+def show_wifi_summary(wifi_data):
+    """Muestra resumen de los datos de Wi-Fi"""
+    connection = wifi_data.get("connection", {})
+    signal = wifi_data.get("signal", {})
+    network = wifi_data.get("network", {})
+    
+    if "error" in connection:
+        return f"⚠️  Error: {connection['error']}"
+    
+    ssid = connection.get("ssid", "N/A")
+    strength = signal.get("strength_percent", "N/A")
+    quality = signal.get("quality", "N/A")
+    band = network.get("band", "N/A")
+    
+    return f"SSID={ssid}, Señal={strength}% ({quality}), Banda={band}"
 
 
 def main():
@@ -184,45 +481,78 @@ def main():
     clear_screen()
     config = load_config()
     
-    helper = PsExecHelper(
-        psexec_path=config.get("psexec_path", "PsExec.exe"),
-        remote_user=config.get("remote_user", "Administrador"),
-        remote_pass=config.get("remote_pass", "")
-    )
-    
     print("=" * 60)
     print("📡 ANALIZADOR DE WI-FI")
     print("=" * 60)
-    print("\n📦 Ingresá los inventarios (NBxxxxxx) separados por espacio")
-    inv_list = input("Ej: NB100232 NB100549\n\nInventarios: ").strip().split()
     
-    if not inv_list:
-        print("❌ No se ingresaron inventarios")
-        input("\nPresioná ENTER para salir...")
-        return
+    print("\n¿Dónde querés analizar Wi-Fi?")
+    print("1. Este equipo (local)")
+    print("2. Equipos remotos (PsExec)")
+    
+    opcion = input("\nOpción (1 o 2): ").strip()
     
     all_results = {}
     
-    for inv in inv_list:
-        result = analyze_wifi(helper, inv)
-        all_results[inv] = result
+    if opcion == "1":
+        # Análisis local
+        result = analyze_wifi_local()
+        hostname = result.get("hostname", "LOCAL")
+        all_results[hostname] = result
         
-        # Mostrar resumen
+        print(f"\n✅ {hostname}: {show_wifi_summary(result)}")
+        
+        # Mostrar detalles
         if "error" not in result.get("connection", {}):
-            ssid = result["connection"].get("ssid", "N/A")
-            signal = result["signal"].get("strength_percent", "N/A")
-            band = result["network"].get("band", "N/A")
-            quality = result["signal"].get("quality", "N/A")
-            print(f"\n✅ {inv}: SSID={ssid}, Señal={signal}% ({quality}), Banda={band}")
-        else:
-            print(f"\n⚠️  {inv}: {result['connection'].get('error', 'Error desconocido')}")
+            network = result.get("network", {})
+            print(f"\n📊 Detalles:")
+            print(f"  IP: {network.get('ip', 'N/A')}")
+            print(f"  Gateway: {network.get('gateway', 'N/A')}")
+            print(f"  DNS: {network.get('dns', 'N/A')}")
+            print(f"  Canal: {network.get('channel', 'N/A')}")
+            print(f"  Velocidad: {network.get('speed_mbps', 'N/A')} Mbps")
+            print(f"  Tipo Radio: {network.get('radio_type', 'N/A')}")
+            
+            # Mostrar conectividad
+            connectivity = result.get("connectivity", [])
+            if connectivity:
+                print(f"\n🌐 Conectividad:")
+                for test in connectivity:
+                    status = "✅" if test.get("Success") else "❌"
+                    print(f"  {status} {test.get('Target', 'N/A')}")
+    
+    elif opcion == "2":
+        # Análisis remoto
+        print("\n📦 Ingresá los inventarios (NBxxxxxx) separados por espacio")
+        inv_list = input("Ej: NB100232 NB100549\n\nInventarios: ").strip().split()
+        
+        if not inv_list:
+            print("❌ No se ingresaron inventarios")
+            input("\nPresioná ENTER para salir...")
+            return
+        
+        # Solicitar credenciales
+        user, password = get_credentials()
+        
+        helper = PsExecHelper(
+            psexec_path=config.get("psexec_path", "PsExec.exe"),
+            remote_user=user,
+            remote_pass=password
+        )
+        for inv in inv_list:
+            result = analyze_wifi_remote(helper, inv)
+            all_results[inv] = result
+            
+            print(f"\n✅ {inv}: {show_wifi_summary(result)}")
+    else:
+        print("❌ Opción inválida")
+        input("\nPresioná ENTER para salir...")
+        return
     
     # Guardar reporte
-    report_path = save_report(all_results, "wifi_analysis")
+    report_path = save_wifi_report(all_results, "wifi_analysis")
     print(f"\n📄 Reporte guardado: {report_path}")
     input("\nPresioná ENTER para salir...")
 
 
 if __name__ == "__main__":
     main()
-

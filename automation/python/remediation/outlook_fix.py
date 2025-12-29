@@ -8,7 +8,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from utils.psexec_helper import PsExecHelper, log_result
-from utils.common import save_report, clear_screen, load_config
+from utils.common import save_report, clear_screen, load_config, get_credentials
 
 
 def fix_outlook(helper, hostname):
@@ -93,12 +93,6 @@ def main():
     clear_screen()
     config = load_config()
     
-    helper = PsExecHelper(
-        psexec_path=config.get("psexec_path", "PsExec.exe"),
-        remote_user=config.get("remote_user", "Administrador"),
-        remote_pass=config.get("remote_pass", "")
-    )
-    
     print("=" * 60)
     print("🔧 REPARACIÓN AUTOMÁTICA DE OUTLOOK")
     print("=" * 60)
@@ -109,6 +103,16 @@ def main():
         print("❌ No se ingresaron inventarios")
         input("\nPresioná ENTER para salir...")
         return
+    
+    # Solicitar credenciales
+    user, password = get_credentials()
+    
+    helper = PsExecHelper(
+        psexec_path=config.get("psexec_path", "PsExec.exe"),
+        remote_user=user,
+        remote_pass=password
+    )
+    
     
     all_results = {}
     
