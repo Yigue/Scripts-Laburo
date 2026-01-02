@@ -7,7 +7,7 @@ import os
 import subprocess
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from utils.winrm_executor import WinRMExecutor
+from utils.remote_executor import RemoteExecutor
 
 
 def mostrar_ayuda():
@@ -41,12 +41,12 @@ Write-Host "RAM      : $([math]::round($systemInfo.TotalPhysicalMemory / 1GB, 2)
 '''
 
 
-def ejecutar(executor: WinRMExecutor, hostname: str):
+def ejecutar(executor: RemoteExecutor, hostname: str):
     """
     Inicia la consola remota interactiva
     
     Args:
-        executor: Instancia de WinRMExecutor
+        executor: Instancia de RemoteExecutor
         hostname: Nombre del equipo remoto
     """
     print(f"\n🖥️ CONSOLA REMOTA - {hostname}")
@@ -178,12 +178,12 @@ def iniciar_consola_interactiva(hostname: str):
         print(f"❌ Error: {e}")
 
 
-def ejecutar_menu(executor: WinRMExecutor, hostname: str):
+def ejecutar_menu(executor: RemoteExecutor, hostname: str):
     """
     Menú de opciones de consola remota
     
     Args:
-        executor: Instancia de WinRMExecutor
+        executor: Instancia de RemoteExecutor
         hostname: Nombre del equipo remoto
     """
     print(f"\n🖥️ CONSOLA REMOTA - {hostname}")
@@ -220,7 +220,7 @@ def main():
         print("❌ Debe ingresar un inventario")
         return
     
-    executor = WinRMExecutor()
+    executor = RemoteExecutor()
     
     print()
     conn = executor.test_connection(hostname)

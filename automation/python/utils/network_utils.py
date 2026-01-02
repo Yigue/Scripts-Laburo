@@ -5,6 +5,29 @@ import subprocess
 import socket
 
 
+def test_ping(hostname, timeout=3):
+    """
+    Prueba conectividad básica con ping (función simple)
+    
+    Args:
+        hostname: Nombre del host
+        timeout: Timeout en segundos
+    
+    Returns:
+        bool: True si responde al ping
+    """
+    try:
+        result = subprocess.run(
+            ["ping", "-n", "1", "-w", str(timeout * 1000), hostname],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 2
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def ping(hostname, count=2, timeout=3):
     """
     Realiza ping a un host

@@ -1,0 +1,7 @@
+# Variables de entorno (contienen credenciales sensibles)
+.env
+.env.local
+.env.*.local
+
+# Archivos de ejemplo (sí se suben al repositorio)
+!.env.example

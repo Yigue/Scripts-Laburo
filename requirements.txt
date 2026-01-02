@@ -7,8 +7,18 @@ pandas>=2.0.0
 # Utilidades
 python-dateutil>=2.8.2
 colorama>=0.4.6
+python-dotenv>=1.0.0
+
+# Conexión remota
+pypsrp>=0.8.0
+pypsexec>=0.3.0
+ansible-runner>=2.4.0
+
+# Dependencias adicionales (instaladas automáticamente con las anteriores)
+# requests - dependencia de pypsrp
+# cryptography - dependencia de pypsrp
+# kerberos - opcional, para autenticación Kerberos
 
 # Ansible (opcional, para uso futuro)
 # ansible>=8.0.0
-# pywinrm>=0.4.3
 

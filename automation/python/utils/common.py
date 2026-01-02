@@ -143,3 +143,24 @@ def clear_cached_credentials():
         get_credentials_cached._cached = None
         print("🔐 Credenciales en caché eliminadas")
 
+
+def log_result(operation, hostname, success, details="", log_dir="data/logs"):
+    """
+    Guarda un log de operación
+    
+    Args:
+        operation: Nombre de la operación (ej: "onedrive_fix")
+        hostname: Hostname del equipo
+        success: True si fue exitoso
+        details: Detalles adicionales
+        log_dir: Directorio de logs
+    """
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"{operation}_{datetime.now().strftime('%Y%m%d')}.log")
+    
+    status = "SUCCESS" if success else "FAILED"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] {status} - {hostname} - {details}\n"
+    
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(log_entry)
