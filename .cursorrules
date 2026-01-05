@@ -1,0 +1,348 @@
+# Reglas de Cursor para Scripts de Automatización IT
+
+## PowerShell Scripts Remotos
+
+### Regla 1: Redirección de Write-Host OBLIGATORIA
+**PROBLEMA**: `Write-Host` en PowerShell 5.1+ escribe al stream de información (`InformationRecord`), no a stdout. `pypsrp` captura `ps.output` (stdout) pero los objetos `InformationRecord` no se extraen correctamente.
+
+**SOLUCIÓN OBLIGATORIA**: Todos los scripts PowerShell que se ejecuten remotamente vía WinRM/PsExec DEBEN incluir al inicio:
+
+```powershell
+# Redirigir Write-Host a Write-Output para que pypsrp lo capture fácilmente
+function Write-Host {
+    param([string]$Object, [string]$ForegroundColor, [string]$BackgroundColor)
+    Write-Output $Object
+}
+```
+
+**NUNCA usar**:
+- `[Console]::Out.WriteLine()` - No funciona bien con pypsrp remoto
+- `Write-Host` sin redirección - No se captura en stdout
+- Streams de información directamente - Son complejos de extraer
+
+### Regla 2: Manejo de Errores en PowerShell
+Todos los scripts PowerShell remotos DEBEN tener:
+- Bloque `try-catch` global para capturar errores internos
+- Mensajes de error explícitos usando `Write-Output` (no `Write-Host`)
+- Marcadores de inicio/fin para diagnóstico: `Write-Output ">>> INICIO <<<"` y `Write-Output ">>> FIN <<<"`
+
+### Regla 3: Uso de Write-Output vs Write-Host
+- **Write-Output**: Para salida que debe capturarse remotamente (SIEMPRE usar en scripts remotos)
+- **Write-Host**: Solo para scripts locales interactivos (NUNCA en scripts remotos sin redirección)
+
+## Código Python
+
+### Regla 4: Manejo de Excepciones
+- Siempre usar `try-except` específicos, no genéricos
+- Incluir mensajes de error descriptivos
+- Usar `traceback` para debugging cuando sea necesario
+
+### Regla 5: Type Hints
+- Usar type hints en funciones públicas
+- Usar `Optional[T]` para valores que pueden ser None
+- Documentar tipos de retorno complejos
+
+### Regla 6: Documentación
+- Docstrings en todas las funciones públicas
+- Incluir Args, Returns, y Raises cuando aplique
+- Ejemplos de uso para funciones complejas
+
+## Estructura de Archivos
+
+### Regla 7: Scripts PowerShell en Python
+Los scripts PowerShell embebidos en archivos Python deben:
+- Estar en variables con nombre descriptivo (ej: `SCRIPT_SYSTEM_INFO`)
+- Incluir la redirección de Write-Host al inicio
+- Tener manejo de errores con try-catch
+- Usar marcadores de inicio/fin para diagnóstico
+
+### Regla 8: Ejecución Remota
+Al ejecutar scripts remotos:
+- Siempre verificar que la salida no esté vacía
+- Mostrar diagnóstico detallado si falla
+- Incluir información del método usado (WinRM/PsExec)
+- Capturar y mostrar stderr además de stdout
+
+## Arquitectura y Organización (CRÍTICO)
+
+### Regla 9: Clean Architecture
+La aplicación DEBE seguir Clean Architecture con 4 capas:
+- **Domain** (`domain/`): Lógica de negocio pura, modelos, interfaces. SIN dependencias externas.
+- **Application** (`application/`): Casos de uso, orquestación de operaciones
+- **Infrastructure** (`infrastructure/`): Implementaciones técnicas (WinRM, PsExec, cache, logging)
+- **Presentation** (`presentation/`): UI/CLI, sin lógica de negocio
+
+**NUNCA**:
+- Domain depende de Infrastructure o Presentation
+- Lógica de negocio en capas de presentación
+- Mezclar UI con lógica de negocio
+
+### Regla 10: Límites de Tamaño de Archivo (OBLIGATORIO)
+- ✅ **<100 líneas**: Ideal
+- ✅ **100-200 líneas**: Aceptable
+- ⚠️ **200-250 líneas**: Considerar refactorizar
+- ❌ **>250 líneas**: DEBE refactorizarse inmediatamente
+
+**Excepciones** (justificar siempre):
+- Tests pueden ser más largos
+- Scripts de migración/setup
+
+### Regla 11: Single Responsibility Principle (SRP)
+Cada archivo/clase DEBE tener UNA sola responsabilidad:
+- Si un archivo hace múltiples cosas, dividir en módulos especializados
+- Usar orchestrators para coordinar múltiples operaciones
+- Extraer funcionalidad común a helpers/utilities
+
+### Regla 12: Scripts PowerShell SIEMPRE en Archivos .ps1
+**NUNCA embeber scripts PowerShell >20 líneas en strings Python**
+
+Scripts largos DEBEN ir en:
+```
+automation/scripts/
+├── common/          # Scripts comunes (write_host_redirect.ps1, etc)
+├── hardware/        # Scripts de hardware
+├── software/        # Scripts de software
+├── network/         # Scripts de red
+└── ...
+```
+
+Cargar usando `ScriptLoader`:
+```python
+from infrastructure.resources import ScriptLoader
+loader = ScriptLoader()
+script = loader.load_with_wrapper("hardware", "get_system_info")
+```
+
+### Regla 13: Dependency Injection
+Usar inyección de dependencias para mejorar testabilidad:
+```python
+class UseCase:
+    def __init__(self, executor: IRemoteExecutor, logger: ILogger):
+        self.executor = executor
+        self.logger = logger
+```
+
+**NO** usar imports directos de implementaciones concretas en casos de uso.
+
+### Regla 14: Interfaces Abstractas (SOLID)
+- Definir interfaces abstractas en `domain/interfaces.py`
+- Implementaciones concretas en `infrastructure/`
+- Permite cambiar implementaciones sin tocar lógica de negocio
+
+Ejemplo:
+```python
+class IRemoteExecutor(ABC):
+    @abstractmethod
+    def execute(self, host: Host, command: str) -> Result:
+        pass
+```
+
+## Código Python - Reglas Adicionales
+
+### Regla 15: Type Hints OBLIGATORIOS
+TODAS las funciones públicas DEBEN tener type hints completos:
+```python
+def execute_operation(
+    hostname: str, 
+    command: str, 
+    timeout: int = 60
+) -> Optional[OperationResult]:
+    ...
+```
+
+### Regla 16: Docstrings Completos
+TODAS las funciones públicas DEBEN tener docstrings con:
+```python
+def operation(hostname: str, timeout: int) -> Result:
+    """
+    Descripción breve
+    
+    Args:
+        hostname: Descripción del argumento
+        timeout: Timeout en segundos
+        
+    Returns:
+        Result: Descripción del retorno
+        
+    Raises:
+        ConnectionError: Cuándo se lanza
+        
+    Example:
+        >>> result = operation("NB001", 60)
+    """
+```
+
+### Regla 17: Logging Estructurado
+**NO** usar `print()` para logging en código de producción.
+
+Usar `LogManager`:
+```python
+from infrastructure.logging import get_logger
+logger = get_logger()
+
+logger.info("Operation started")
+logger.error("Operation failed", exc_info=True)
+logger.log_operation(hostname, operation, success, duration)
+```
+
+### Regla 18: Manejo de Errores
+- Usar jerarquía de excepciones personalizada (`shared/exceptions.py`)
+- **NUNCA** usar `except Exception:` genérico sin re-lanzar
+- Loguear todas las excepciones antes de propagarlas
+- Usar decorador `@retry` para operaciones que pueden fallar temporalmente
+
+```python
+from shared.decorators import retry
+from shared.exceptions import ConnectionError
+
+@retry(max_attempts=3, delay=2)
+def connect(hostname: str):
+    ...
+```
+
+### Regla 19: Validación de Inputs
+Validar TODOS los inputs de usuario/externos:
+```python
+from shared.validators import validate_hostname, validate_timeout
+
+validate_hostname(hostname, raise_on_invalid=True)
+validate_timeout(timeout, min_value=10, max_value=3600, raise_on_invalid=True)
+```
+
+### Regla 20: Configuración Centralizada
+**NO** hardcodear valores. Usar `config.py`:
+```python
+from config import get_config
+config = get_config()
+timeout = config.default_timeout
+```
+
+### Regla 21: Factories para Creación de Objetos
+Usar factories para crear objetos complejos:
+```python
+from shared.factories import ExecutorFactory, HostBuilder
+
+executor = ExecutorFactory.create("auto")
+host = HostBuilder().with_hostname("NB001").online().build()
+```
+
+## Performance y Optimización
+
+### Regla 22: Cache para Operaciones Lentas
+Cachear resultados de operaciones costosas:
+```python
+from infrastructure.cache import get_cache
+cache = get_cache()
+
+result = cache.get(f"software_list_{hostname}")
+if not result:
+    result = get_software_list(hostname)
+    cache.set(f"software_list_{hostname}", result, ttl=300)
+```
+
+### Regla 23: Ejecución Paralela
+Usar `BatchExecutor` para operaciones en múltiples hosts:
+```python
+from application.batch import BatchExecutor
+
+batch = BatchExecutor(executor, max_parallel=5)
+results = batch.execute_on_multiple(
+    hostnames=["NB001", "NB002", "PC003"],
+    operation=get_system_info,
+    operation_name="System Info"
+)
+```
+
+### Regla 24: Health Checks Antes de Operaciones
+Verificar pre-requisitos antes de operaciones largas:
+```python
+from infrastructure.health import HealthChecker
+
+checker = HealthChecker(executor)
+health = checker.check_prerequisites(host, "install_office")
+
+if not health["ready"]:
+    print("Pre-requisitos no cumplidos:", health["checks_failed"])
+    return
+```
+
+## Módulos Nuevos
+
+### Regla 25: Estructura de Módulo Nuevo
+Al crear un módulo nuevo, seguir esta estructura:
+1. Definir modelos en `domain/models/` si es necesario
+2. Crear caso de uso en `application/use_cases/`
+3. Implementación técnica en `infrastructure/`
+4. UI en `presentation/commands/` o `presentation/cli/`
+5. Scripts PowerShell en `automation/scripts/[categoria]/`
+
+### Regla 26: Reutilización de Código
+Antes de crear código nuevo, verificar si existe algo reutilizable en:
+- `shared/` - Código compartido
+- `domain/services/` - Servicios de dominio
+- `infrastructure/resources/` - ResourceManager, ScriptLoader
+- `utils/` (legacy, migrar gradualmente a nueva estructura)
+
+## Testing (Futuro)
+
+### Regla 27: Tests Unitarios
+Al crear funcionalidad crítica, agregar tests en:
+```
+tests/
+├── unit/            # Tests unitarios
+├── integration/     # Tests de integración
+└── fixtures/        # Datos de prueba
+```
+
+## Naming Conventions
+
+### Regla 28: Nombres Descriptivos
+- **Archivos**: `snake_case.py` (ej: `bitlocker_handler.py`)
+- **Clases**: `PascalCase` (ej: `BitLockerHandler`)
+- **Funciones**: `snake_case` (ej: `execute_operation`)
+- **Constantes**: `UPPER_SNAKE_CASE` (ej: `MAX_RETRY_ATTEMPTS`)
+- **Variables privadas**: `_leading_underscore`
+
+### Regla 29: Nombres de Casos de Uso
+Casos de uso DEBEN terminar en `UseCase`:
+- `ConfigureEquipmentUseCase`
+- `InstallSoftwareUseCase`
+- `ManageApplicationsUseCase`
+
+## Compatibilidad Backward
+
+### Regla 30: Mantener Funciones Legacy
+Al refactorizar módulos existentes, mantener función `ejecutar()` wrapper:
+```python
+# Nuevo código refactorizado
+class ConfigureEquipmentUseCase:
+    ...
+
+# Wrapper para compatibilidad
+def ejecutar(executor, hostname: str):
+    """Función legacy para compatibilidad"""
+    host = Host(hostname=hostname)
+    use_case = ConfigureEquipmentUseCase(executor)
+    return use_case.execute(host)
+```
+
+## Resumen de Prioridades
+
+**P0 - CRÍTICO**:
+- Arquitectura de 4 capas
+- Límite de 250 líneas por archivo
+- Scripts PS en archivos .ps1
+- Type hints y docstrings completos
+
+**P1 - ALTO**:
+- Dependency Injection
+- Logging estructurado
+- Validación de inputs
+- Manejo de excepciones
+
+**P2 - MEDIO**:
+- Cache
+- Ejecución paralela
+- Health checks
+- Performance
+
