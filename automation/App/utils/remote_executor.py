@@ -2,7 +2,7 @@
 Ejecutor remoto unificado con fallback automático WinRM → PsExec
 Protocolo Andreani IT: Zero-Auth (SSO) con fallback inteligente
 """
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass
 import threading
 import time
@@ -10,6 +10,8 @@ import time
 from .winrm import WinRMExecutor, WinRMConfig, test_winrm_connection
 from .psexec import PsExecExecutor, PsExecConfig, test_psexec_connection
 
+if TYPE_CHECKING:
+    from .winrm.session import WinRMSession
 
 @dataclass
 class RemoteExecResult:
@@ -35,11 +37,12 @@ class RemoteExecutor:
         self.winrm_executor = WinRMExecutor(self.winrm_config)
         self.psexec_executor = PsExecExecutor(self.psexec_config)
         self._sessions = {}  # Caché de sesiones WinRM: {hostname: WinRMSession}
+        self._host_preferred_method = {}  # {hostname: "winrm" | "psexec"}
         self._last_error = None
         self._lock = threading.Lock()
         self._thread_local = threading.local()
 
-    def _get_winrm_session(self, hostname: str) -> WinRMSession:
+    def _get_winrm_session(self, hostname: str) -> "WinRMSession":
         """Obtiene o crea una sesión WinRM persistente para el host."""
         with self._lock:
             if hostname in self._sessions:
@@ -104,6 +107,8 @@ class RemoteExecutor:
                 status["diagnostics"].append("✅ Auth: WinRM autenticado correctamente.")
                 status["ready"] = True
                 status["method"] = "WinRM"
+                with self._lock:
+                    self._host_preferred_method[hostname] = "winrm"
                 return status
             except Exception as e:
                 err = str(e)
@@ -119,6 +124,8 @@ class RemoteExecutor:
             status["diagnostics"].append("✅ PsExec: Puerto SMB (445) abierto. Disponible como fallback.")
             status["ready"] = True
             status["method"] = "PsExec"
+            with self._lock:
+                self._host_preferred_method[hostname] = "psexec"
         else:
             status["diagnostics"].append("❌ PsExec: Puerto SMB (445) cerrado.")
             status["error"] = "Sin acceso por WinRM ni SMB."
@@ -132,11 +139,18 @@ class RemoteExecutor:
         import time
         max_retries = 2
         
+        # Verificar método preferido
+        preferred = self._host_preferred_method.get(hostname)
+
         for attempt in range(max_retries):
             try:
                 if verbose and not silent:
                     print(f"   🔄 Exec [{attempt+1}/{max_retries}] en {hostname}...", end="", flush=True)
                 
+                # Si preferimos PsExec, saltamos WinRM
+                if preferred == "psexec":
+                    raise Exception("Forced fallback to PsExec")
+
                 # Intentar WinRM con sesión persistente
                 try:
                     session = self._get_winrm_session(hostname)
@@ -145,10 +159,16 @@ class RemoteExecutor:
                     if rc == 0:
                         if verbose and not silent: print(" ✅ OK")
                         self._last_error = None
+                        # Confirmar preferencia si tuvo éxito
+                        with self._lock:
+                            self._host_preferred_method[hostname] = "winrm"
                         return stdout or "(sin salida)"
                     else:
                         if verbose and not silent: print(" ⚠️ OK (con errores)")
                         self._last_error = stderr
+                        # Incluso con errores de script, la conexión funcionó
+                        with self._lock:
+                            self._host_preferred_method[hostname] = "winrm"
                         return f"{stdout}\n[ERROR]: {stderr}" if stdout else stderr
 
                 except (Exception) as winrm_err:
@@ -162,21 +182,30 @@ class RemoteExecutor:
                     if "auth" in err_str or "credential" in err_str:
                         raise winrm_err # Forzar fallback
                     
-                    if attempt < max_retries - 1:
+                    if attempt < max_retries - 1 and preferred != "psexec":
                         if verbose and not silent: print(" 🔄 Reintentando...")
                         time.sleep(1)
                         continue
                     raise winrm_err
 
             except Exception as e:
-                if verbose and not silent: print(" ⚠️ Fallback a PsExec...")
+                # Fallback a PsExec
+                if verbose and not silent:
+                    if preferred == "psexec":
+                        if attempt == 0: print(f" 🚀 Ejecutando vía PsExec...") # Only print once if we know it's psexec
+                    else:
+                        print(" ⚠️ Fallback a PsExec...")
+
                 res = self.psexec_executor.execute_ps(hostname, script, timeout)
                 if res.success:
                     self._last_error = None
+                    # Recordar que PsExec funciona para este host
+                    with self._lock:
+                        self._host_preferred_method[hostname] = "psexec"
                     return res.stdout or "(sin salida)"
                 else:
                     self._last_error = res.error or res.stderr
-                    if verbose and not silent: print(f" ❌ Fallido: {self._last_error[:50]}")
+                    if verbose and not silent: print(f" ❌ Fallido: {self._format_error(self._last_error)}")
                     return None
 
         return None
@@ -191,4 +220,3 @@ class RemoteExecutor:
     def _format_error(self, error: Optional[str]) -> str:
         if not error: return "Error desconocido"
         return error[:200] + "..." if len(error) > 200 else error
-

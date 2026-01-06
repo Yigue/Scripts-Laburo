@@ -35,6 +35,14 @@ from features.hardware import (
 from features.diagnostic import wcorp_fix
 from features.software import office_install, aplicaciones
 from features.printers import impresoras as impresoras_mod, zebra_calibrar
+from features.remedations import (
+    sccm_fix,
+    onedrive_fix,
+    outlook_fix,
+    vpn_fix,
+    disk_management
+)
+from features.wifi import wifi_analyzer
 from features import consola_remota
 
 
@@ -132,7 +140,30 @@ def crear_menu_principal(executor, hostname: str) -> FlatMenu:
     menu.add_item("R", "WCORP (Script, cleanDNS, GPUPDATE)", 
                   partial(wcorp_fix.ejecutar, executor, hostname),
                   module_path="features.diagnostic.wcorp_fix")
+    menu.add_item("R", "Analizar Wi-Fi",
+                  partial(wifi_analyzer.ejecutar, executor, hostname),
+                  module_path="features.wifi.wifi_analyzer")
     
+    # ═══════════════════════════════════════════════════════════════
+    # [M] MANTENIMIENTO Y REPARACION
+    # ═══════════════════════════════════════════════════════════════
+    menu.add_category("M", "MANTENIMIENTO Y REPARACION")
+    menu.add_item("M", "Reparar Cliente SCCM",
+                  partial(sccm_fix.ejecutar, executor, hostname),
+                  module_path="features.remedations.sccm_fix")
+    menu.add_item("M", "Reparar OneDrive",
+                  partial(onedrive_fix.ejecutar, executor, hostname),
+                  module_path="features.remedations.onedrive_fix")
+    menu.add_item("M", "Reparar Outlook",
+                  partial(outlook_fix.ejecutar, executor, hostname),
+                  module_path="features.remedations.outlook_fix")
+    menu.add_item("M", "Reparar VPN (FortiClient)",
+                  partial(vpn_fix.ejecutar, executor, hostname),
+                  module_path="features.remedations.vpn_fix")
+    menu.add_item("M", "Gestión de Discos (Limpieza)",
+                  partial(disk_management.ejecutar, executor, hostname),
+                  module_path="features.remedations.disk_management")
+
     # ═══════════════════════════════════════════════════════════════
     # [S] SOFTWARE
     # ═══════════════════════════════════════════════════════════════
