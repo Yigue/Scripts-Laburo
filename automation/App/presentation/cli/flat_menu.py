@@ -5,6 +5,7 @@ Menú principal muestra categorías, al seleccionar una entra en submenú
 from typing import Callable, Dict, List, Optional
 from .colors import Colors, ConsoleStyle
 from utils.common import clear_screen
+from utils.gui_launcher import launch_operation_in_gui
 
 style = ConsoleStyle()
 
@@ -12,10 +13,11 @@ style = ConsoleStyle()
 class MenuItem:
     """Representa un item del menú"""
     
-    def __init__(self, num: int, label: str, action: Callable):
+    def __init__(self, num: int, label: str, action: Callable, module_path: str = ""):
         self.num = num
         self.label = label
         self.action = action
+        self.module_path = module_path  # Path del módulo para lanzar en nueva consola
 
 
 class Category:
@@ -27,12 +29,13 @@ class Category:
         self.items: List[MenuItem] = []
         self.current_num = 1
     
-    def add_item(self, label: str, action: Callable):
+    def add_item(self, label: str, action: Callable, module_path: str = ""):
         """Agrega un item a la categoría"""
         item = MenuItem(
             num=self.current_num,
             label=label,
-            action=action
+            action=action,
+            module_path=module_path
         )
         self.items.append(item)
         self.current_num += 1
@@ -62,7 +65,7 @@ class CategoryMenu:
         self.category_order.append(key)
         return cat
     
-    def add_item(self, category_key: str, label: str, action: Callable):
+    def add_item(self, category_key: str, label: str, action: Callable, module_path: str = ""):
         """
         Agrega un item a una categoría existente
         
@@ -70,10 +73,11 @@ class CategoryMenu:
             category_key: Letra de la categoría
             label: Etiqueta del item
             action: Función a ejecutar
+            module_path: Path del módulo para lanzar en nueva consola
         """
         if category_key in self.categories:
             cat = self.categories[category_key]
-            cat.add_item(label, action)
+            cat.add_item(label, action, module_path)
 
 
 class CategoryMenuRenderer:
@@ -225,21 +229,33 @@ class CategoryMenuRenderer:
                 input(f"{Colors.CYAN}Presiona ENTER para continuar...{Colors.RESET}")
     
     def _execute_action(self, item: MenuItem):
-        """Ejecuta la acción de un item"""
-        clear_screen()
-        print(f"\n{Colors.CYAN}{'=' * 70}{Colors.RESET}")
-        print(f"{Colors.BOLD}{Colors.CYAN}  Ejecutando: {Colors.WHITE}{item.label}{Colors.RESET}")
-        print(f"{Colors.CYAN}{'=' * 70}{Colors.RESET}\n")
-        
-        try:
-            item.action()
-            print(f"\n{style.success(f'{item.label} completado.')}")
-        except KeyboardInterrupt:
-            print(f"\n{style.warning('Operacion cancelada por el usuario.')}")
-        except Exception as e:
-            print(f"\n{style.error(f'Error: {str(e)}')}")
-        
-        input(f"\n{Colors.CYAN}Presiona ENTER para volver al menu...{Colors.RESET}")
+        """Ejecuta la acción de un item en una ventana GUI" """
+        # Siempre lanzar en GUI para no bloquear esta consola
+        if item.module_path:
+            print(f"\n{Colors.CYAN}Abriendo ventana de seguimiento para: {Colors.WHITE}{item.label}{Colors.RESET}")
+            launch_operation_in_gui(
+                module_path=item.module_path,
+                hostname=self.hostname,
+                label=item.label
+            )
+            print(f"{style.success('Operacion iniciada. Podes seguir usando el menu.')}")
+            input(f"\n{Colors.CYAN}Presiona ENTER para continuar...{Colors.RESET}")
+        else:
+            # Fallback: ejecutar en esta consola si no hay module_path
+            clear_screen()
+            print(f"\n{Colors.CYAN}{'=' * 70}{Colors.RESET}")
+            print(f"{Colors.BOLD}{Colors.CYAN}  Ejecutando: {Colors.WHITE}{item.label}{Colors.RESET}")
+            print(f"{Colors.CYAN}{'=' * 70}{Colors.RESET}\n")
+            
+            try:
+                item.action()
+                print(f"\n{style.success(f'{item.label} completado.')}")
+            except KeyboardInterrupt:
+                print(f"\n{style.warning('Operacion cancelada por el usuario.')}")
+            except Exception as e:
+                print(f"\n{style.error(f'Error: {str(e)}')}")
+            
+            input(f"\n{Colors.CYAN}Presiona ENTER para volver al menu...{Colors.RESET}")
 
 
 # Alias para compatibilidad

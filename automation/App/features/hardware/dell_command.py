@@ -9,6 +9,7 @@ import shutil
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, BASE_DIR)
 from utils.remote_executor import RemoteExecutor
+from utils.streaming import run_with_streaming, LogFilePoller
 
 
 # Rutas de recursos
@@ -16,16 +17,20 @@ DELL_COMMAND_SOURCE = r"\\pc101338\c$\Tools\Dell-Command-Update-Application_6VFW
 NOSLEEP_SOURCE = r"\\pc101338\c$\Tools\NoSleep.exe"
 
 
+# Script de Dell Command Update con logging en tiempo real
 SCRIPT_DELL_COMMAND = '''
-# Redirigir Write-Host a Write-Output (ejecución silenciosa)
-function Write-Host {
-    param([string]$Object, [string]$ForegroundColor, [string]$BackgroundColor)
-    Write-Output $Object
+# Configuración de logging en tiempo real
+$global:LogFile = "C:\\TEMP\\dell_command.log"
+"" | Set-Content $global:LogFile -Encoding UTF8
+
+function Log {
+    param([string]$Message)
+    $Message | Add-Content $global:LogFile -Encoding UTF8
+    Write-Output $Message
 }
-$null = $true  # Silenciar definición de función
 
 try {
-Write-Host "Validando si Dell Command esta instalado..." -ForegroundColor Yellow
+Log "Validando si Dell Command esta instalado..."
 
 $dellCommandInstalled = Get-ItemProperty -Path `
     'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*', `
@@ -33,24 +38,25 @@ $dellCommandInstalled = Get-ItemProperty -Path `
     -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Dell Command*Update*" }
 
 if ($dellCommandInstalled) {
-    Write-Host "Dell Command ya esta instalado." -ForegroundColor Green
-    Write-Host "Version: $($dellCommandInstalled.DisplayVersion)"
+    Log "✅ Dell Command ya esta instalado."
+    Log "   Version: $($dellCommandInstalled.DisplayVersion)"
 } else {
-    Write-Host "Dell Command no esta instalado. Instalando..." -ForegroundColor Yellow
+    Log "Dell Command no esta instalado. Instalando..."
     
     $installer = "C:\\TEMP\\Dell-Command-Update-Application_6VFWW_WIN_5.4.0_A00.EXE"
     
     if (Test-Path $installer) {
+        Log "   Ejecutando instalador..."
         $proc = Start-Process -FilePath $installer -ArgumentList "/s" -Wait -PassThru
         
         if ($proc.ExitCode -ne 0) {
-            Write-Host "Instalacion fallida con codigo $($proc.ExitCode)" -ForegroundColor Red
+            Log "❌ Instalacion fallida con codigo $($proc.ExitCode)"
             return
         } else {
-            Write-Host "Instalacion completada exitosamente." -ForegroundColor Green
+            Log "✅ Instalacion completada exitosamente."
         }
     } else {
-        Write-Host "Instalador no encontrado en $installer" -ForegroundColor Red
+        Log "❌ Instalador no encontrado en $installer"
         return
     }
 }
@@ -65,57 +71,80 @@ $DCUPath = if (Test-Path "C:\\Program Files (x86)\\Dell\\CommandUpdate\\dcu-cli.
 }
 
 if (-not $DCUPath) {
-    Write-Host "Dell Command Update CLI no encontrado." -ForegroundColor Red
+    Log "❌ Dell Command Update CLI no encontrado."
     return
 }
 
-Write-Host ""
-Write-Host "Ejecutando actualizaciones..." -ForegroundColor Yellow
-Write-Host "Esto puede tomar varios minutos..."
-Write-Host ""
+Log ""
+Log "🔍 Buscando actualizaciones disponibles..."
 
-$logOut = "C:\\TEMP\\dcu-output.txt"
-$logErr = "C:\\TEMP\\dcu-error.txt"
-
+# Primero escanear para ver qué hay disponible
+$scanLog = "C:\\TEMP\\dcu-scan.txt"
 Start-Process -FilePath $DCUPath `
-    -ArgumentList "/applyUpdates" `
+    -ArgumentList "/scan -outputLog=$scanLog" `
     -WindowStyle Hidden `
-    -RedirectStandardOutput $logOut `
-    -RedirectStandardError $logErr `
     -Wait
 
-Write-Host "Actualizacion finalizada." -ForegroundColor Green
-Write-Host ""
-Write-Host "--- Resultado de actualizaciones ---" -ForegroundColor Cyan
-if (Test-Path $logOut) { Get-Content $logOut }
-Write-Host ""
-Write-Host "--- Errores (si hubo) ---" -ForegroundColor Magenta
-if (Test-Path $logErr) { Get-Content $logErr }
+# Mostrar updates disponibles
+if (Test-Path $scanLog) {
+    $scanContent = Get-Content $scanLog -Raw
+    if ($scanContent -match "No updates") {
+        Log "✅ No hay actualizaciones pendientes."
+        return
+    }
+}
+
+Log ""
+Log "📥 Aplicando actualizaciones..."
+Log "   (Este proceso puede tomar 10-30 minutos)"
+Log ""
+
+# Aplicar updates con logging detallado
+$updateLog = "C:\\TEMP\\dcu-update.txt"
+$proc = Start-Process -FilePath $DCUPath `
+    -ArgumentList "/applyUpdates -autoSuspendBitLocker=enable -outputLog=$updateLog" `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+
+# Parsear el log de actualización para mostrar qué se actualizó
+if (Test-Path $updateLog) {
+    $updateContent = Get-Content $updateLog -ErrorAction SilentlyContinue
+    foreach ($line in $updateContent) {
+        # Filtrar líneas relevantes
+        if ($line -match "Installing|Downloading|Updated|Success|Failed|Error|BIOS|Driver") {
+            Log "   $line"
+        }
+    }
+}
+
+Log ""
+if ($proc.ExitCode -eq 0) {
+    Log "✅ Actualizacion completada exitosamente."
+} elseif ($proc.ExitCode -eq 1) {
+    Log "✅ Actualizaciones aplicadas. Se requiere reinicio."
+} elseif ($proc.ExitCode -eq 500) {
+    Log "ℹ️ No hay actualizaciones disponibles."
+} else {
+    Log "⚠️ Proceso terminado con codigo: $($proc.ExitCode)"
+}
+
 } catch {
-    Write-Output "❌ ERROR EN POWERSHELL: $($_.Exception.Message)"
-    Write-Output "StackTrace: $($_.ScriptStackTrace)"
+    $errorMsg = "❌ ERROR: $($_.Exception.Message)"
+    $errorMsg | Add-Content $global:LogFile -Encoding UTF8
+    Write-Output $errorMsg
 }
 '''
 
 SCRIPT_RUN_NOSLEEP = '''
-# Redirigir Write-Host a Write-Output (ejecución silenciosa)
-function Write-Host {
-    param([string]$Object, [string]$ForegroundColor, [string]$BackgroundColor)
-    Write-Output $Object
-}
-$null = $true  # Silenciar definición de función
-
 try {
     $nosleep = "C:\\temp\\NoSleep.exe"
     if (Test-Path $nosleep) {
         Start-Process -FilePath $nosleep -WindowStyle Minimized
-        Write-Host "NoSleep iniciado" -ForegroundColor Green
-    } else {
-        Write-Host "NoSleep.exe no encontrado" -ForegroundColor Yellow
+        Write-Output "NoSleep iniciado"
     }
 } catch {
-    Write-Output "❌ ERROR EN POWERSHELL: $($_.Exception.Message)"
-    Write-Output "StackTrace: $($_.ScriptStackTrace)"
+    Write-Output "Error: $($_.Exception.Message)"
 }
 '''
 
@@ -194,16 +223,22 @@ def ejecutar(executor: RemoteExecutor, hostname: str, copiar: bool = True):
     print("\n💤 Iniciando NoSleep...")
     executor.run_script_block(hostname, SCRIPT_RUN_NOSLEEP, timeout=10, verbose=False)
     
-    # Ejecutar Dell Command
+    # Ejecutar Dell Command con streaming en tiempo real
     print("\n📥 Ejecutando Dell Command Update...")
     print("   (Esto puede tomar 10-30 minutos)")
     print()
     
-    result = executor.run_script_block(hostname, SCRIPT_DELL_COMMAND, timeout=1800)  # 30 min timeout
+    # Usar streaming para mostrar progreso en tiempo real
+    result = run_with_streaming(
+        executor, 
+        hostname, 
+        SCRIPT_DELL_COMMAND,
+        operation_name="Dell Command Update",
+        timeout=1800,
+        log_filename="dell_command.log"
+    )
     
-    if result:
-        print(result)
-    else:
+    if not result:
         print("❌ Error ejecutando Dell Command Update")
     
     print()
@@ -237,4 +272,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

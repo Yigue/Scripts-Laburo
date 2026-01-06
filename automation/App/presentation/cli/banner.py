@@ -21,7 +21,7 @@ def show_banner():
 {Colors.BOLD}{Colors.RED}Y88b  d88P Y88b. .d88P 888        Y88b. .d88P 888  T88b      888     888        {Colors.RESET}
 {Colors.BOLD}{Colors.RED} "Y8888P"   "Y88888P"  888         "Y88888P"  888   T88b     888     8888888888 {Colors.RESET}
 
-{Colors.WHITE}                    Bienvenido al Asistente de Soporte Tecnico{Colors.RESET}
+{Colors.WHITE}                    Bienvenido a herramientas de soporte técnico{Colors.RESET}
 """
     print(banner)
 

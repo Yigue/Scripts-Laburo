@@ -1,20 +1,4 @@
-"""
-Módulo para configuración completa de equipos (REFACTORIZADO)
-Corresponde a la opción 2 del menú
-Ejecuta: Dell Command, Office, Licencia Windows, SFC
-
-NOTA: Este módulo ha sido refactorizado a application/use_cases/configure_equipment/
-Este archivo mantiene compatibilidad con código existente.
-"""
-import sys
 import os
-
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, BASE_DIR)
-
-# Importar desde módulo refactorizado
-from features.remedations.configure_equipment import ejecutar
-from utils.remote_executor import RemoteExecutor
 
 
 # ===== RECURSOS =====

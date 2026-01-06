@@ -10,6 +10,7 @@ import time
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, BASE_DIR)
 from utils.remote_executor import RemoteExecutor
+from utils.streaming import run_with_streaming
 
 
 # Rutas de recursos Office
@@ -19,68 +20,64 @@ CONFIG_XML = os.path.join(OFFICE_SOURCE_PATH, "config.xml")
 
 
 SCRIPT_CHECK_OFFICE = '''
-# Redirigir Write-Host a Write-Output (ejecución silenciosa)
-function Write-Host {
-    param([string]$Object, [string]$ForegroundColor, [string]$BackgroundColor)
-    Write-Output $Object
-}
-$null = $true  # Silenciar definición de función
-
 try {
     $office = Get-ItemProperty -Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" -ErrorAction SilentlyContinue |
         Where-Object { $_.DisplayName -match "Microsoft 365|Office" } |
         Select-Object DisplayName, DisplayVersion
 
     if ($office) {
-        Write-Host "Office ya esta instalado:" -ForegroundColor Green
-        $office | Format-Table -AutoSize
-        return $true
+        Write-Output "Office ya esta instalado:"
+        $office | Format-Table -AutoSize | Out-String | Write-Output
     } else {
-        Write-Host "Office NO esta instalado" -ForegroundColor Yellow
-        return $false
+        Write-Output "Office NO esta instalado"
     }
 } catch {
-    Write-Output "❌ ERROR EN POWERSHELL: $($_.Exception.Message)"
-    Write-Output "StackTrace: $($_.ScriptStackTrace)"
-    return $false
+    Write-Output "ERROR: $($_.Exception.Message)"
 }
 '''
 
+# Script de Office con logging en tiempo real
 SCRIPT_INSTALL_OFFICE = '''
-# Redirigir Write-Host a Write-Output (ejecución silenciosa)
-function Write-Host {
-    param([string]$Object, [string]$ForegroundColor, [string]$BackgroundColor)
-    Write-Output $Object
+# Configuración de logging en tiempo real
+$global:LogFile = "C:\\TEMP\\office_install.log"
+"" | Set-Content $global:LogFile -Encoding UTF8
+
+function Log {
+    param([string]$Message)
+    $Message | Add-Content $global:LogFile -Encoding UTF8
+    Write-Output $Message
 }
-$null = $true  # Silenciar definición de función
 
 try {
     $setupPath = "C:\\Temp\\setup.exe"
     $configPath = "C:\\Temp\\config.xml"
 
     if (-not (Test-Path $setupPath)) {
-        Write-Host "Error: setup.exe no encontrado en $setupPath" -ForegroundColor Red
+        Log "❌ Error: setup.exe no encontrado en $setupPath"
         return
     }
 
     if (-not (Test-Path $configPath)) {
-        Write-Host "Error: config.xml no encontrado en $configPath" -ForegroundColor Red
+        Log "❌ Error: config.xml no encontrado en $configPath"
         return
     }
 
-    Write-Host "Iniciando instalacion de Office 365..." -ForegroundColor Yellow
-    Write-Host "Esto puede tomar 10-20 minutos..." -ForegroundColor Gray
-
+    Log "📥 Iniciando instalacion de Office 365..."
+    Log "   Preparando instalador..."
+    
+    # Ejecutar instalación con monitoreo
     $proc = Start-Process -FilePath $setupPath -ArgumentList "/configure `"$configPath`"" -Wait -PassThru
-
+    
+    Log ""
     if ($proc.ExitCode -eq 0) {
-        Write-Host "Instalacion completada" -ForegroundColor Green
+        Log "✅ Instalacion de Office 365 completada exitosamente."
     } else {
-        Write-Host "La instalacion termino con codigo: $($proc.ExitCode)" -ForegroundColor Yellow
+        Log "⚠️ La instalacion termino con codigo: $($proc.ExitCode)"
     }
 } catch {
-    Write-Output "❌ ERROR EN POWERSHELL: $($_.Exception.Message)"
-    Write-Output "StackTrace: $($_.ScriptStackTrace)"
+    $errorMsg = "❌ ERROR: $($_.Exception.Message)"
+    $errorMsg | Add-Content $global:LogFile -Encoding UTF8
+    Write-Output $errorMsg
 }
 '''
 
@@ -167,19 +164,23 @@ def ejecutar(executor: RemoteExecutor, hostname: str):
         input("\nPresioná ENTER para continuar...")
         return
     
-    # Instalar Office
+    # Instalar Office con streaming
     print("\n📥 Instalando Office 365...")
     print("   (Esto puede tomar 10-20 minutos)")
     print()
     
-    result = executor.run_script_block(hostname, SCRIPT_INSTALL_OFFICE, timeout=1800)  # 30 min
-    
-    if result:
-        print(result)
+    result = run_with_streaming(
+        executor,
+        hostname,
+        SCRIPT_INSTALL_OFFICE,
+        operation_name="Office 365",
+        timeout=1800,
+        log_filename="office_install.log"
+    )
     
     # Verificar instalación
     print("\n🔍 Verificando instalación...")
-    time.sleep(10)
+    time.sleep(5)
     
     verify_result = executor.run_script_block(hostname, SCRIPT_CHECK_OFFICE, timeout=30)
     if verify_result:
@@ -216,4 +217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

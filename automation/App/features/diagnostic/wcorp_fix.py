@@ -19,10 +19,6 @@ function Write-Host {
 $null = $true  # Silenciar definición de función
 
 try {
-Write-Host "=========================================="
-Write-Host "     SOLUCION DE PROBLEMAS WCORP"
-Write-Host "=========================================="
-Write-Host ""
 
 # 1. Eliminar certificados vencidos
 Write-Host "1. Limpiando certificados..." -ForegroundColor Yellow
@@ -167,10 +163,6 @@ Write-Host "7. Actualizando directivas de grupo..." -ForegroundColor Yellow
 Start-Process -FilePath "gpupdate.exe" -ArgumentList "/force" -NoNewWindow -Wait
 Write-Host "   Directivas actualizadas" -ForegroundColor Green
 
-Write-Host ""
-Write-Host "=========================================="
-Write-Host "     PROCESO COMPLETADO"
-Write-Host "=========================================="
 } catch {
     Write-Output "❌ ERROR EN POWERSHELL: $($_.Exception.Message)"
     Write-Output "StackTrace: $($_.ScriptStackTrace)"
