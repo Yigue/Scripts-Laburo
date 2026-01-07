@@ -9,9 +9,15 @@ import json
 import subprocess
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from utils.psexec_helper import PsExecHelper
+from utils.remote_executor import RemoteExecutor
 from utils.common import clear_screen, load_config, get_credentials
+
+
+def ejecutar(executor: RemoteExecutor, hostname: str):
+    result = analyze_wifi_remote(executor, hostname)
+    print(f"\n✅ {hostname}: {show_wifi_summary(result)}")
+    save_wifi_report({hostname: result}, "wifi_analysis")
+    return result
 
 
 def get_report_dir():
@@ -238,12 +244,12 @@ def analyze_wifi_local():
     return wifi_data
 
 
-def analyze_wifi_remote(helper, hostname):
+def analyze_wifi_remote(executor: RemoteExecutor, hostname: str):
     """
     Analiza la conexión Wi-Fi del equipo remoto
     
     Args:
-        helper: Instancia de PsExecHelper
+        executor: Instancia de RemoteExecutor
         hostname: Hostname del equipo
     
     Returns:
@@ -317,7 +323,10 @@ def analyze_wifi_remote(helper, hostname):
     }
     """
     
-    result = helper.run_remote(hostname, interface_cmd)
+    result = executor.run_command(hostname, interface_cmd)
+
+    if result is None:
+        result = "N/A"
     
     if result == "N/A":
         wifi_data["connection"]["error"] = "No se pudo conectar al equipo remoto"
@@ -370,8 +379,8 @@ def analyze_wifi_remote(helper, hostname):
         }
         """
         
-        network_result = helper.run_remote(hostname, network_cmd)
-        if network_result != "N/A" and "ERROR:" not in network_result:
+        network_result = executor.run_command(hostname, network_cmd)
+        if network_result is not None and "ERROR:" not in network_result:
             try:
                 net_info = json.loads(network_result)
                 wifi_data["network"].update({
@@ -397,8 +406,8 @@ def analyze_wifi_remote(helper, hostname):
         $results | ConvertTo-Json
         """
         
-        ping_result = helper.run_remote(hostname, ping_cmd)
-        if ping_result != "N/A":
+        ping_result = executor.run_command(hostname, ping_cmd)
+        if ping_result is not None:
             try:
                 ping_data = json.loads(ping_result)
                 wifi_data["connectivity"] = ping_data if isinstance(ping_data, list) else [ping_data]
@@ -476,83 +485,5 @@ def show_wifi_summary(wifi_data):
     return f"SSID={ssid}, Señal={strength}% ({quality}), Banda={band}"
 
 
-def main():
-    """Función principal"""
-    clear_screen()
-    config = load_config()
-    
-    print("=" * 60)
-    print("📡 ANALIZADOR DE WI-FI")
-    print("=" * 60)
-    
-    print("\n¿Dónde querés analizar Wi-Fi?")
-    print("1. Este equipo (local)")
-    print("2. Equipos remotos (PsExec)")
-    
-    opcion = input("\nOpción (1 o 2): ").strip()
-    
-    all_results = {}
-    
-    if opcion == "1":
-        # Análisis local
-        result = analyze_wifi_local()
-        hostname = result.get("hostname", "LOCAL")
-        all_results[hostname] = result
-        
-        print(f"\n✅ {hostname}: {show_wifi_summary(result)}")
-        
-        # Mostrar detalles
-        if "error" not in result.get("connection", {}):
-            network = result.get("network", {})
-            print(f"\n📊 Detalles:")
-            print(f"  IP: {network.get('ip', 'N/A')}")
-            print(f"  Gateway: {network.get('gateway', 'N/A')}")
-            print(f"  DNS: {network.get('dns', 'N/A')}")
-            print(f"  Canal: {network.get('channel', 'N/A')}")
-            print(f"  Velocidad: {network.get('speed_mbps', 'N/A')} Mbps")
-            print(f"  Tipo Radio: {network.get('radio_type', 'N/A')}")
-            
-            # Mostrar conectividad
-            connectivity = result.get("connectivity", [])
-            if connectivity:
-                print(f"\n🌐 Conectividad:")
-                for test in connectivity:
-                    status = "✅" if test.get("Success") else "❌"
-                    print(f"  {status} {test.get('Target', 'N/A')}")
-    
-    elif opcion == "2":
-        # Análisis remoto
-        print("\n📦 Ingresá los inventarios (NBxxxxxx) separados por espacio")
-        inv_list = input("Ej: NB100232 NB100549\n\nInventarios: ").strip().split()
-        
-        if not inv_list:
-            print("❌ No se ingresaron inventarios")
-            input("\nPresioná ENTER para salir...")
-            return
-        
-        # Solicitar credenciales
-        user, password = get_credentials()
-        
-        helper = PsExecHelper(
-            psexec_path=config.get("psexec_path", "PsExec.exe"),
-            remote_user=user,
-            remote_pass=password
-        )
-        for inv in inv_list:
-            result = analyze_wifi_remote(helper, inv)
-            all_results[inv] = result
-            
-            print(f"\n✅ {inv}: {show_wifi_summary(result)}")
-    else:
-        print("❌ Opción inválida")
-        input("\nPresioná ENTER para salir...")
-        return
-    
-    # Guardar reporte
-    report_path = save_wifi_report(all_results, "wifi_analysis")
-    print(f"\n📄 Reporte guardado: {report_path}")
-    input("\nPresioná ENTER para salir...")
-
-
 if __name__ == "__main__":
-    main()
+    print("Este script debe ejecutarse desde el menú principal.")
