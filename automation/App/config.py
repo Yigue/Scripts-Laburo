@@ -16,6 +16,9 @@ class AppConfig:
     # ============================================================================
     # PATHS DE RECURSOS
     # ============================================================================
+    psexec_path: str = "PsExec.exe"
+    remote_user: Optional[str] = None
+    remote_pass: Optional[str] = None
     tools_network_path: str = r"\\pc101338\c$\Tools"
     dell_command_source: str = "Dell-Command-Update-Application_6VFWW_WIN_5.4.0_A00.EXE"
     nosleep_source: str = "NoSleep.exe"
@@ -84,7 +87,14 @@ class AppConfig:
     
     def _load_from_env(self):
         """Carga configuración desde variables de entorno"""
-        # Paths
+        # Paths & Credentials
+        if os.getenv('PSEXEC_PATH'):
+            self.psexec_path = os.getenv('PSEXEC_PATH')
+        if os.getenv('REMOTE_USER'):
+            self.remote_user = os.getenv('REMOTE_USER')
+        if os.getenv('REMOTE_PASS'):
+            self.remote_pass = os.getenv('REMOTE_PASS')
+
         if os.getenv('TOOLS_NETWORK_PATH'):
             self.tools_network_path = os.getenv('TOOLS_NETWORK_PATH')
         

@@ -31,6 +31,8 @@ from features.hardware import (
     reiniciar,
     dell_command,
     activar_windows,
+    battery_health,
+    disk_check,
 )
 from features.diagnostic import wcorp_fix
 from features.software import office_install, aplicaciones
@@ -132,6 +134,12 @@ def crear_menu_principal(executor, hostname: str) -> FlatMenu:
     menu.add_item("H", "Activar Windows", 
                   partial(activar_windows.ejecutar, executor, hostname),
                   module_path="features.hardware.activar_windows")
+    menu.add_item("H", "Estado de Batería",
+                  partial(battery_health.ejecutar, executor, hostname),
+                  module_path="features.hardware.battery_health")
+    menu.add_item("H", "Verificar Espacio en Disco",
+                  partial(disk_check.ejecutar, executor, hostname),
+                  module_path="features.hardware.disk_check")
     
     # ═══════════════════════════════════════════════════════════════
     # [R] REDES Y CONECTIVIDAD
