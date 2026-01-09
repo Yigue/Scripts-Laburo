@@ -1,0 +1,52 @@
+---
+# ============================================================================
+# Variables SENSIBLES para Windows Hosts (ENCRIPTAR CON ANSIBLE-VAULT)
+# ============================================================================
+# 
+# IMPORTANTE: Este archivo DEBE ser encriptado antes de subir a git
+# 
+# Para encriptar:
+#   ansible-vault encrypt inventory/group_vars/windows_hosts_vault.yml
+# 
+# Para editar:
+#   ansible-vault edit inventory/group_vars/windows_hosts_vault.yml
+# 
+# Para desencriptar (NO RECOMENDADO):
+#   ansible-vault decrypt inventory/group_vars/windows_hosts_vault.yml
+# 
+# ============================================================================
+
+# ============================================================================
+# Credenciales de Dominio (para producción)
+# ============================================================================
+# CAMBIAR ESTOS VALORES ANTES DE ENCRIPTAR
+vault_ansible_user: "DOMINIO\\usuario_ansible"
+vault_ansible_password: "CAMBIAR_ESTA_PASSWORD"
+
+# ============================================================================
+# Credenciales de Active Directory (NUEVO)
+# ============================================================================
+# Usuario con permisos para:
+#   - Desbloquear cuentas de usuario en AD
+#   - Leer atributo ms-Mcs-AdmPwd (LAPS)
+#   - Leer atributo msFVE-RecoveryPassword (BitLocker)
+vault_ad_admin_user: "DOMINIO\\admin_helpdesk"
+vault_ad_admin_password: "CAMBIAR_ESTA_PASSWORD"
+
+# ============================================================================
+# Credenciales de Servicio
+# ============================================================================
+vault_admin_local_password: "CAMBIAR_ESTA_PASSWORD"
+vault_service_account: "DOMINIO\\svc_ansible"
+vault_service_password: "CAMBIAR_ESTA_PASSWORD"
+
+# ============================================================================
+# Claves KMS (si aplica)
+# ============================================================================
+vault_kms_key: "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+
+# ============================================================================
+# Contraseñas de Respaldo BitLocker
+# ============================================================================
+# Si se necesita una contraseña maestra para el respaldo de BitLocker
+# vault_bitlocker_recovery_backup: "CAMBIAR_ESTA_PASSWORD"

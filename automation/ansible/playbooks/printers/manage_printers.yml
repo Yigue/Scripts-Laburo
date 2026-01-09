@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# Playbook: Gestionar Impresoras
+# ============================================================================
+# Lista impresoras, muestra trabajos pendientes, gestiona spooler
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/printers/manage_printers.yml \
+#     --extra-vars "target_host=HOSTNAME"
+#
+# Para limpiar cola:
+#   --extra-vars "target_host=HOSTNAME clean_queue=true"
+#
+# Para reiniciar spooler:
+#   --extra-vars "target_host=HOSTNAME restart_spooler=true"
+# ============================================================================
+
+- name: Gestionar Impresoras
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar gestión de impresoras
+      include_role:
+        name: printers
+        tasks_from: manage_printers.yml

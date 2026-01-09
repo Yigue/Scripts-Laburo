@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# Playbook: Calibrar Impresora Zebra
+# ============================================================================
+# Envía comandos ZPL de calibración a impresora Zebra
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/printers/zebra_calibrate.yml \
+#     --extra-vars "target_host=HOSTNAME zebra_ip=192.168.1.100"
+#
+# Para ejecutar Gap Sensing adicional:
+#   --extra-vars "target_host=HOSTNAME zebra_ip=192.168.1.100 run_gap_sensing=true"
+# ============================================================================
+
+- name: Calibrar Impresora Zebra
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar calibración Zebra
+      include_role:
+        name: printers
+        tasks_from: zebra_calibrate.yml

@@ -1,0 +1,5 @@
+---
+# Variables por defecto para el role de hardware
+reboot_timeout: 600
+reboot_delay: 30
+dell_command_update_path: "C:\\Program Files\\Dell\\CommandUpdate\\dcu-cli.exe"

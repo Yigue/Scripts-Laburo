@@ -1,0 +1,92 @@
+---
+# ============================================================================
+# Role: software - Task: repair_office
+# Ejecuta Quick Repair de Office
+# ============================================================================
+
+- name: Verificar Office instalado
+  ansible.windows.win_shell: |
+    $office = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+              Where-Object { $_.DisplayName -like "*Microsoft 365*" -or $_.DisplayName -like "*Office*" } |
+              Select-Object -First 1
+    
+    if ($office) {
+      @{
+        installed = $true
+        name = $office.DisplayName
+        uninstall_string = $office.UninstallString
+      } | ConvertTo-Json
+    } else {
+      @{ installed = $false } | ConvertTo-Json
+    }
+  register: office_check
+  changed_when: false
+
+- name: Parsear resultado
+  set_fact:
+    office_info: "{{ office_check.stdout | from_json }}"
+
+- name: Error si Office no está instalado
+  fail:
+    msg: "Office no está instalado en este equipo"
+  when: not office_info.installed
+
+- name: Buscar herramienta de reparación de Office
+  ansible.windows.win_shell: |
+    # Buscar OfficeClickToRun.exe
+    $paths = @(
+      "C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
+      "C:\Program Files (x86)\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
+    )
+    
+    foreach ($path in $paths) {
+      if (Test-Path $path) {
+        Write-Output $path
+        exit 0
+      }
+    }
+    
+    Write-Output "NOT_FOUND"
+  register: c2r_path
+  changed_when: false
+
+- name: Ejecutar Quick Repair
+  ansible.windows.win_shell: |
+    $c2rPath = "{{ c2r_path.stdout | trim }}"
+    
+    if ($c2rPath -eq "NOT_FOUND") {
+      Write-Output "No se encontró OfficeClickToRun.exe"
+      Write-Output "Intentando reparación alternativa..."
+      
+      # Método alternativo: usar MsiExec si hay GUID
+      $office = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+                Where-Object { $_.DisplayName -like "*Microsoft 365*" -or $_.DisplayName -like "*Office*" } |
+                Select-Object -First 1
+      
+      if ($office.PSChildName -match "^\{.*\}$") {
+        $guid = $office.PSChildName
+        Start-Process msiexec.exe -ArgumentList "/fa $guid /qn" -Wait -NoNewWindow
+        Write-Output "Reparación MSI ejecutada para $guid"
+      } else {
+        Write-Output "No se pudo ejecutar reparación automática"
+      }
+    } else {
+      Write-Output "Iniciando Quick Repair de Office..."
+      
+      # Ejecutar Quick Repair
+      Start-Process $c2rPath -ArgumentList "scenario=Repair platform=x64 culture=es-es RepairType=Quick DisplayLevel=False" -Wait -NoNewWindow
+      
+      Write-Output "Quick Repair completado"
+    }
+  register: repair_result
+  async: 1800  # 30 minutos máximo
+  poll: 30
+
+- name: Resumen de reparación
+  debug:
+    msg:
+      - "=========================================="
+      - "    REPARACIÓN DE OFFICE - RESULTADO"
+      - "=========================================="
+      - "Aplicación: {{ office_info.name }}"
+      - "{{ repair_result.stdout_lines | default(['Reparación ejecutada']) }}"

@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Activar Windows
+# ============================================================================
+# Activa Windows usando KMS
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/activate_windows.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Activar Windows
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar activación de Windows
+      include_role:
+        name: hardware
+        tasks_from: activate_windows.yml

@@ -1,0 +1,75 @@
+---
+# ============================================================================
+# Role: network - Task: wcorp_fix
+# Ejecuta script de WCORP + cleanDNS + gpupdate
+# ============================================================================
+
+- name: Limpiar caché DNS
+  ansible.windows.win_shell: |
+    ipconfig /flushdns
+    Write-Output "Cache DNS limpiado"
+  register: dns_flush
+  changed_when: true
+
+- name: Limpiar caché NetBIOS
+  ansible.windows.win_shell: |
+    nbtstat -R
+    nbtstat -RR
+    Write-Output "Cache NetBIOS limpiado"
+  register: netbios_flush
+  ignore_errors: true
+
+- name: Resetear Winsock
+  ansible.windows.win_shell: |
+    netsh winsock reset
+    Write-Output "Winsock reseteado"
+  register: winsock_reset
+  ignore_errors: true
+
+- name: Resetear stack IP
+  ansible.windows.win_shell: |
+    netsh int ip reset
+    Write-Output "Stack IP reseteado"
+  register: ip_reset
+  ignore_errors: true
+
+- name: Actualizar políticas de grupo (gpupdate)
+  ansible.windows.win_shell: |
+    gpupdate /force
+    Write-Output "Politicas de grupo actualizadas"
+  register: gpupdate
+  async: 120
+  poll: 10
+  ignore_errors: true
+
+- name: Verificar conectividad post-fix
+  ansible.windows.win_shell: |
+    $tests = @(
+      @{ Target = "8.8.8.8"; Name = "Google DNS" },
+      @{ Target = "1.1.1.1"; Name = "Cloudflare DNS" }
+    )
+    
+    $results = @()
+    foreach ($test in $tests) {
+      $ping = Test-Connection -ComputerName $test.Target -Count 1 -Quiet -ErrorAction SilentlyContinue
+      $results += "$($test.Name): $(if ($ping) { 'OK' } else { 'FALLO' })"
+    }
+    
+    $results | ForEach-Object { Write-Output $_ }
+  register: connectivity_test
+  changed_when: false
+
+- name: Resumen de WCORP Fix
+  debug:
+    msg:
+      - "=========================================="
+      - "        WCORP FIX - RESULTADO"
+      - "=========================================="
+      - "DNS Flush: {{ dns_flush.stdout | default('OK') }}"
+      - "NetBIOS: {{ netbios_flush.stdout | default('OK') }}"
+      - "Winsock: {{ winsock_reset.stdout | default('OK') }}"
+      - "IP Reset: {{ ip_reset.stdout | default('OK') }}"
+      - "GPUpdate: {{ gpupdate.stdout | default('OK') }}"
+      - "----------------------------------------"
+      - "Pruebas de conectividad:"
+      - "{{ connectivity_test.stdout_lines | default(['Sin datos']) }}"

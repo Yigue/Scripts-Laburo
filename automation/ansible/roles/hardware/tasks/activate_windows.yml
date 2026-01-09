@@ -1,0 +1,88 @@
+---
+# ============================================================================
+# Role: hardware - Task: activate_windows
+# Activa Windows usando KMS
+# ============================================================================
+
+- name: Verificar estado de activación actual
+  ansible.windows.win_shell: |
+    $license = Get-CimInstance -ClassName SoftwareLicensingProduct | 
+               Where-Object { $_.PartialProductKey -and $_.Name -like "*Windows*" } |
+               Select-Object -First 1
+    
+    if ($license) {
+      $status = switch ($license.LicenseStatus) {
+        0 { "Sin licencia" }
+        1 { "Activado" }
+        2 { "Gracia inicial" }
+        3 { "Gracia adicional" }
+        4 { "Gracia no genuino" }
+        5 { "Notificación" }
+        6 { "Gracia extendida" }
+        default { "Desconocido" }
+      }
+      
+      @{
+        activated = ($license.LicenseStatus -eq 1)
+        status = $status
+        partial_key = $license.PartialProductKey
+        description = $license.Description
+      } | ConvertTo-Json
+    } else {
+      @{
+        activated = $false
+        status = "No se encontró licencia de Windows"
+      } | ConvertTo-Json
+    }
+  register: activation_check
+  changed_when: false
+
+- name: Parsear estado de activación
+  set_fact:
+    windows_activation: "{{ activation_check.stdout | from_json }}"
+
+- name: Mostrar estado actual
+  debug:
+    msg:
+      - "Estado actual de Windows:"
+      - "  Activado: {{ windows_activation.activated }}"
+      - "  Estado: {{ windows_activation.status }}"
+      - "  Clave parcial: {{ windows_activation.partial_key | default('N/A') }}"
+
+- name: Configurar servidor KMS
+  ansible.windows.win_shell: |
+    slmgr.vbs /skms {{ kms_server }}:{{ kms_port | default(1688) }}
+    Write-Output "Servidor KMS configurado: {{ kms_server }}:{{ kms_port | default(1688) }}"
+  register: kms_config
+  when: 
+    - not windows_activation.activated
+    - kms_server is defined
+
+- name: Activar Windows con KMS
+  ansible.windows.win_shell: |
+    slmgr.vbs /ato
+    Start-Sleep -Seconds 5
+    
+    # Verificar resultado
+    $license = Get-CimInstance -ClassName SoftwareLicensingProduct | 
+               Where-Object { $_.PartialProductKey -and $_.Name -like "*Windows*" } |
+               Select-Object -First 1
+    
+    if ($license.LicenseStatus -eq 1) {
+      Write-Output "Windows activado exitosamente"
+    } else {
+      Write-Output "Error en la activación. Estado: $($license.LicenseStatus)"
+    }
+  register: activation_result
+  when: 
+    - not windows_activation.activated
+    - kms_server is defined
+
+- name: Resumen de activación
+  debug:
+    msg:
+      - "=========================================="
+      - "     ACTIVACIÓN DE WINDOWS - RESULTADO"
+      - "=========================================="
+      - "Estado inicial: {{ windows_activation.status }}"
+      - "{{ activation_result.stdout | default('Ya estaba activado') }}"

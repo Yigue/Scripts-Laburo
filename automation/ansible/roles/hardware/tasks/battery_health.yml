@@ -1,0 +1,157 @@
+---
+# ============================================================================
+# Role: hardware - Task: battery_health
+# Obtener estado de salud de la batería (solo laptops)
+# ============================================================================
+
+- name: Verificar si es laptop
+  ansible.windows.win_shell: |
+    $chassisType = (Get-WmiObject -Class Win32_SystemEnclosure).ChassisTypes
+    # ChassisTypes: 9=Laptop, 10=Notebook, 14=Sub Notebook
+    if ($chassisType -in @(9, 10, 14)) {
+      @{ isLaptop = $true; chassisType = $chassisType } | ConvertTo-Json
+    } else {
+      @{ isLaptop = $false; chassisType = $chassisType } | ConvertTo-Json
+    }
+  register: chassis_check_raw
+  changed_when: false
+
+- name: Parsear tipo de chasis
+  set_fact:
+    chassis_info: "{{ chassis_check_raw.stdout | from_json }}"
+
+- name: Informar si no es laptop
+  debug:
+    msg: 
+      - "=========================================="
+      - "Este equipo no es una laptop"
+      - "Tipo de chasis: {{ chassis_info.chassisType }}"
+      - "La opción de salud de batería solo aplica a laptops"
+      - "=========================================="
+  when: not chassis_info.isLaptop
+
+- name: Generar reporte de batería
+  ansible.windows.win_shell: |
+    $reportPath = "$env:TEMP\battery-report.xml"
+    
+    # Generar reporte en formato XML
+    $result = powercfg /batteryreport /output $reportPath /xml 2>&1
+    
+    if (Test-Path $reportPath) {
+      try {
+        [xml]$report = Get-Content $reportPath -ErrorAction Stop
+        
+        $batteries = @()
+        foreach ($battery in $report.BatteryReport.Batteries.Battery) {
+          $designCapacity = [int]$battery.DesignCapacity
+          $fullChargeCapacity = [int]$battery.FullChargeCapacity
+          
+          if ($designCapacity -gt 0) {
+            $healthPercent = [math]::Round(($fullChargeCapacity / $designCapacity) * 100, 1)
+          } else {
+            $healthPercent = "N/A"
+          }
+          
+          $batteries += @{
+            id = $battery.Id
+            manufacturer = $battery.Manufacturer
+            serialNumber = $battery.SerialNumber
+            chemistry = $battery.Chemistry
+            designCapacity_mWh = $designCapacity
+            fullChargeCapacity_mWh = $fullChargeCapacity
+            healthPercent = $healthPercent
+            cycleCount = $battery.CycleCount
+          }
+        }
+        
+        # Obtener información del sistema
+        $systemInfo = @{
+          computerName = $report.BatteryReport.SystemInformation.ComputerName
+          systemManufacturer = $report.BatteryReport.SystemInformation.SystemManufacturer
+          systemProductName = $report.BatteryReport.SystemInformation.SystemProductName
+          biosVersion = $report.BatteryReport.SystemInformation.BIOSVersion
+        }
+        
+        # Obtener uso reciente
+        $recentUsage = @()
+        foreach ($entry in $report.BatteryReport.RecentUsage.UsageEntry | Select-Object -First 5) {
+          $recentUsage += @{
+            timestamp = $entry.Timestamp
+            state = $entry.State
+            chargeCapacity = $entry.ChargeCapacity
+          }
+        }
+        
+        @{
+          success = $true
+          system = $systemInfo
+          batteries = $batteries
+          recentUsage = $recentUsage
+        } | ConvertTo-Json -Depth 4
+        
+        Remove-Item $reportPath -Force -ErrorAction SilentlyContinue
+      } catch {
+        @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json
+      }
+    } else {
+      @{ success = $false; error = "No se pudo generar el reporte de batería" } | ConvertTo-Json
+    }
+  register: battery_report_raw
+  when: chassis_info.isLaptop
+  changed_when: false
+
+- name: Parsear reporte de batería
+  set_fact:
+    battery_report: "{{ battery_report_raw.stdout | from_json }}"
+  when: chassis_info.isLaptop and battery_report_raw.stdout is defined
+
+- name: Mostrar información de batería
+  debug:
+    msg:
+      - "=========================================="
+      - "     REPORTE DE SALUD DE BATERÍA"
+      - "=========================================="
+      - "Equipo: {{ battery_report.system.computerName | default('N/A') }}"
+      - "Modelo: {{ battery_report.system.systemProductName | default('N/A') }}"
+      - "=========================================="
+  when: 
+    - chassis_info.isLaptop
+    - battery_report.success | default(false)
+
+- name: Mostrar cada batería
+  debug:
+    msg:
+      - "---"
+      - "🔋 Batería #{{ ansible_loop.index }}"
+      - "   Fabricante: {{ item.manufacturer | default('N/A') }}"
+      - "   Capacidad de diseño: {{ item.designCapacity_mWh | default('N/A') }} mWh"
+      - "   Capacidad actual: {{ item.fullChargeCapacity_mWh | default('N/A') }} mWh"
+      - "   ❤️ Salud: {{ item.healthPercent }}%"
+      - "   Ciclos: {{ item.cycleCount | default('N/A') }}"
+      - "   Química: {{ item.chemistry | default('N/A') }}"
+  loop: "{{ battery_report.batteries | default([]) }}"
+  loop_control:
+    extended: yes
+  when:
+    - chassis_info.isLaptop
+    - battery_report.success | default(false)
+
+- name: Evaluación de salud de batería
+  debug:
+    msg:
+      - "=========================================="
+      - "     EVALUACIÓN"
+      - "=========================================="
+      - "{{ '✅ Excelente (>80%)' if (battery_report.batteries[0].healthPercent | default(0) | float) > 80 else ('⚠️ Degradada (40-80%)' if (battery_report.batteries[0].healthPercent | default(0) | float) > 40 else '❌ Crítica (<40%) - Considere reemplazo') }}"
+  when:
+    - chassis_info.isLaptop
+    - battery_report.success | default(false)
+    - battery_report.batteries | length > 0
+
+- name: Set battery_health_facts
+  set_fact:
+    battery_health:
+      is_laptop: "{{ chassis_info.isLaptop }}"
+      health_percent: "{{ battery_report.batteries[0].healthPercent | default('N/A') if chassis_info.isLaptop and battery_report.success | default(false) and battery_report.batteries | length > 0 else 'N/A' }}"
+      batteries: "{{ battery_report.batteries | default([]) }}"
+  when: chassis_info is defined

@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Reparación de Red
+# ============================================================================
+# Flush DNS, reset IP, reiniciar adaptador
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/network/network_repair.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Reparación de Red
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar reparación de red
+      include_role:
+        name: network
+        tasks_from: network_repair.yml

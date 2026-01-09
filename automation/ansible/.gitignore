@@ -1,0 +1,45 @@
+# ============================================================================
+# IT-Ops CLI - .gitignore
+# ============================================================================
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Cache de Ansible
+.cache/
+*.retry
+
+# Variables sensibles (NUNCA subir)
+# NOTA: windows_hosts_vault.yml debe estar encriptado con ansible-vault
+# inventory/group_vars/windows_hosts_vault.yml
+
+# Archivos temporales
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Reportes generados
+reports/
+*.json.report
+
+# Backups
+*.bak
+*.backup

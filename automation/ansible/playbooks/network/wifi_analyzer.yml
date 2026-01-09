@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Analizador Wi-Fi
+# ============================================================================
+# Analiza la conexión Wi-Fi del equipo
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/network/wifi_analyzer.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Analizador Wi-Fi
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar análisis Wi-Fi
+      include_role:
+        name: network
+        tasks_from: wifi_analyzer.yml

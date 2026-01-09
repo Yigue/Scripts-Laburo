@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Reparar Office
+# ============================================================================
+# Ejecuta Quick Repair de Office
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/software/repair_office.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Reparar Office
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar reparación de Office
+      include_role:
+        name: software
+        tasks_from: repair_office.yml

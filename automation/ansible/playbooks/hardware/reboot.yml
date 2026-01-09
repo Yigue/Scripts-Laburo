@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# Playbook: Reiniciar Equipo
+# ============================================================================
+# Reinicia el equipo de forma controlada con Ansible
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/reboot.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Reiniciar equipo
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  vars:
+    reboot_timeout: 600
+    reboot_delay: 30
+  
+  tasks:
+    - name: Ejecutar tareas de reboot
+      include_role:
+        name: hardware
+        tasks_from: reboot.yml

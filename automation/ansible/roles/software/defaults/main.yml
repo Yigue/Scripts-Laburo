@@ -1,0 +1,5 @@
+---
+# Variables por defecto para el role de software
+office_installer_path: "\\\\server\\share\\Office365\\setup.exe"
+office_config_path: "\\\\server\\share\\Office365\\configuration.xml"
+install_timeout: 1800

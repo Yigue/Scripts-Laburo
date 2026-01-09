@@ -1,0 +1,7 @@
+---
+# Roles comunes - Punto de entrada principal
+# Este archivo incluye todas las tareas comunes reutilizables
+
+- name: Incluir tareas según variable task_name
+  include_tasks: "{{ task_name }}.yml"
+  when: task_name is defined

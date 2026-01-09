@@ -1,0 +1,212 @@
+---
+# ============================================================================
+# Role: software - Task: reset_onedrive
+# Resetear OneDrive a estado inicial
+# ============================================================================
+# NOTA: Este proceso:
+# 1. Cierra todos los procesos de OneDrive
+# 2. Ejecuta el comando de reset
+# 3. Reinicia OneDrive (opcional)
+#
+# El usuario NO perderá archivos sincronizados, solo se resetea la config
+# ============================================================================
+
+- name: Verificar si OneDrive está instalado
+  ansible.windows.win_shell: |
+    $oneDrivePaths = @(
+      "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe",
+      "C:\Program Files\Microsoft OneDrive\OneDrive.exe",
+      "C:\Program Files (x86)\Microsoft OneDrive\OneDrive.exe"
+    )
+    
+    foreach ($path in $oneDrivePaths) {
+      if (Test-Path $path) {
+        @{
+          installed = $true
+          path = $path
+          version = (Get-Item $path).VersionInfo.FileVersion
+        } | ConvertTo-Json
+        exit
+      }
+    }
+    
+    @{ installed = $false; error = "OneDrive no encontrado" } | ConvertTo-Json
+  register: onedrive_check_raw
+  changed_when: false
+
+- name: Parsear información de OneDrive
+  set_fact:
+    onedrive_info: "{{ onedrive_check_raw.stdout | from_json }}"
+
+- name: Informar si OneDrive no está instalado
+  debug:
+    msg:
+      - "=========================================="
+      - "     ❌ OneDrive no encontrado"
+      - "=========================================="
+      - "OneDrive no está instalado en este equipo"
+  when: not onedrive_info.installed | default(false)
+
+- name: Mostrar información de OneDrive
+  debug:
+    msg:
+      - "=========================================="
+      - "     ☁️ RESET DE ONEDRIVE"
+      - "=========================================="
+      - "Versión: {{ onedrive_info.version | default('N/A') }}"
+      - "Ubicación: {{ onedrive_info.path | default('N/A') }}"
+  when: onedrive_info.installed | default(false)
+
+- name: Obtener procesos de OneDrive activos
+  ansible.windows.win_shell: |
+    $processes = Get-Process -Name "OneDrive*" -ErrorAction SilentlyContinue
+    
+    @{
+      count = $processes.Count
+      processes = $processes | ForEach-Object { $_.Name }
+    } | ConvertTo-Json
+  register: onedrive_processes_raw
+  when: onedrive_info.installed | default(false)
+  changed_when: false
+
+- name: Parsear procesos
+  set_fact:
+    onedrive_processes: "{{ onedrive_processes_raw.stdout | from_json }}"
+  when: 
+    - onedrive_info.installed | default(false)
+    - onedrive_processes_raw.stdout is defined
+
+- name: Cerrar procesos de OneDrive
+  ansible.windows.win_shell: |
+    $terminated = @()
+    
+    Get-Process -Name "OneDrive*" -ErrorAction SilentlyContinue | ForEach-Object {
+      try {
+        $_.Kill()
+        $terminated += $_.Name
+        Write-Output "Proceso terminado: $($_.Name)"
+      } catch {
+        Write-Output "Error terminando: $($_.Name): $($_.Exception.Message)"
+      }
+    }
+    
+    # Esperar a que los procesos terminen
+    Start-Sleep -Seconds 3
+    
+    @{
+      terminated = $terminated
+      count = $terminated.Count
+    } | ConvertTo-Json
+  register: kill_result_raw
+  when: 
+    - onedrive_info.installed | default(false)
+    - (onedrive_processes.count | default(0) | int) > 0
+
+- name: Ejecutar reset de OneDrive
+  ansible.windows.win_shell: |
+    $onedrivePath = "{{ onedrive_info.path }}"
+    
+    try {
+      # Ejecutar reset
+      Start-Process -FilePath $onedrivePath -ArgumentList "/reset" -Wait -NoNewWindow
+      
+      # Esperar a que el reset complete
+      Start-Sleep -Seconds 5
+      
+      Write-Output "Reset ejecutado exitosamente"
+      
+      @{
+        success = $true
+        message = "OneDrive reset completado"
+      } | ConvertTo-Json
+    } catch {
+      @{
+        success = $false
+        error = $_.Exception.Message
+      } | ConvertTo-Json
+    }
+  register: reset_result_raw
+  when: onedrive_info.installed | default(false)
+
+- name: Parsear resultado del reset
+  set_fact:
+    reset_result: "{{ reset_result_raw.stdout | from_json }}"
+  when: 
+    - onedrive_info.installed | default(false)
+    - reset_result_raw.stdout is defined
+
+- name: Limpiar caché de OneDrive
+  ansible.windows.win_shell: |
+    $cleanedPaths = @()
+    
+    $cachePaths = @(
+      "$env:LOCALAPPDATA\Microsoft\OneDrive\logs",
+      "$env:LOCALAPPDATA\Microsoft\OneDrive\settings"
+    )
+    
+    foreach ($path in $cachePaths) {
+      if (Test-Path $path) {
+        try {
+          Remove-Item -Path "$path\*" -Recurse -Force -ErrorAction Stop
+          $cleanedPaths += $path
+        } catch {
+          Write-Output "No se pudo limpiar: $path"
+        }
+      }
+    }
+    
+    @{
+      cleaned = $cleanedPaths.Count
+      paths = $cleanedPaths
+    } | ConvertTo-Json
+  register: cleanup_result_raw
+  when: onedrive_info.installed | default(false)
+  ignore_errors: true
+
+- name: Reiniciar OneDrive (opcional)
+  ansible.windows.win_shell: |
+    $onedrivePath = "{{ onedrive_info.path }}"
+    
+    try {
+      Start-Process -FilePath $onedrivePath -NoNewWindow
+      Start-Sleep -Seconds 3
+      
+      $running = Get-Process -Name "OneDrive" -ErrorAction SilentlyContinue
+      
+      @{
+        restarted = ($null -ne $running)
+        message = if ($running) { "OneDrive reiniciado exitosamente" } else { "OneDrive no reinició automáticamente" }
+      } | ConvertTo-Json
+    } catch {
+      @{
+        restarted = $false
+        error = $_.Exception.Message
+      } | ConvertTo-Json
+    }
+  register: restart_result_raw
+  when: 
+    - onedrive_info.installed | default(false)
+    - reset_onedrive_restart | default(true) | bool
+
+- name: Mostrar resultado final
+  debug:
+    msg:
+      - "=========================================="
+      - "     ☁️ RESET DE ONEDRIVE - RESULTADO"
+      - "=========================================="
+      - "{{ '✅ Reset completado exitosamente' if (reset_result.success | default(false)) else '❌ Error en reset: ' + (reset_result.error | default('Desconocido')) }}"
+      - ""
+      - "📋 Acciones realizadas:"
+      - "   • Procesos terminados: {{ (onedrive_processes.count | default(0)) }}"
+      - "   • Caché limpiado: {{ (cleanup_result_raw.stdout | from_json).cleaned | default(0) if cleanup_result_raw.stdout is defined else 0 }} carpetas"
+      - "   • {{ (restart_result_raw.stdout | from_json).message | default('Reinicio no solicitado') if restart_result_raw.stdout is defined else 'Reinicio no ejecutado' }}"
+      - ""
+      - "⚠️ NOTA: El usuario debe iniciar sesión en OneDrive nuevamente"
+  when: onedrive_info.installed | default(false)
+
+- name: Set onedrive_reset_facts
+  set_fact:
+    onedrive_reset:
+      installed: "{{ onedrive_info.installed | default(false) }}"
+      reset_success: "{{ reset_result.success | default(false) }}"
+      version: "{{ onedrive_info.version | default('N/A') }}"

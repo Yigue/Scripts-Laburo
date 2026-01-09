@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: WCORP Fix
+# ============================================================================
+# Ejecuta script de WCORP + cleanDNS + gpupdate
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/network/wcorp_fix.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: WCORP Fix
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar WCORP Fix
+      include_role:
+        name: network
+        tasks_from: wcorp_fix.yml

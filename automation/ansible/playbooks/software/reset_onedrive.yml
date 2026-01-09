@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# Playbook: Reset OneDrive
+# ============================================================================
+# Resetea OneDrive a su estado inicial
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/software/reset_onedrive.yml \
+#     --extra-vars "target_host=NB001234"
+#
+# Opcional - No reiniciar OneDrive después del reset:
+#   --extra-vars "target_host=NB001234 reset_onedrive_restart=false"
+#
+# NOTA: El usuario NO perderá archivos, solo configuración local
+# ============================================================================
+
+- name: Reset de OneDrive
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  vars:
+    reset_onedrive_restart: true
+  
+  tasks:
+    - name: Ejecutar reset de OneDrive
+      include_role:
+        name: software
+        tasks_from: reset_onedrive.yml

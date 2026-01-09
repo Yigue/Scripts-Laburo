@@ -1,0 +1,49 @@
+---
+# ============================================================================
+# Role: remote - Task: console
+# Consola remota (información y test de comandos)
+# ============================================================================
+# NOTA: La consola interactiva real no se puede ejecutar via Ansible.
+# Este playbook proporciona información del equipo y permite ejecutar
+# comandos simples. Para consola interactiva, usar Enter-PSSession o similar.
+# ============================================================================
+
+- name: Obtener información básica del equipo
+  ansible.windows.win_shell: |
+    Write-Output "=========================================="
+    Write-Output "       INFORMACIÓN DEL EQUIPO REMOTO"
+    Write-Output "=========================================="
+    Write-Output "Hostname: $env:COMPUTERNAME"
+    Write-Output "Usuario actual: $env:USERNAME"
+    Write-Output "Dominio: $env:USERDOMAIN"
+    Write-Output "OS: $((Get-WmiObject Win32_OperatingSystem).Caption)"
+    Write-Output "Uptime: $((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime)"
+    Write-Output ""
+    Write-Output "Procesos en ejecución: $((Get-Process).Count)"
+    Write-Output "Servicios en ejecución: $((Get-Service | Where-Object { $_.Status -eq 'Running' }).Count)"
+  register: basic_info
+  changed_when: false
+
+- name: Ejecutar comando personalizado
+  ansible.windows.win_shell: |
+    {{ custom_command | default('Write-Output "No se especificó comando personalizado"') }}
+  register: custom_result
+  when: custom_command is defined
+  changed_when: false
+
+- name: Mostrar información
+  debug:
+    msg:
+      - "{{ basic_info.stdout_lines }}"
+      - "{{ custom_result.stdout_lines | default([]) }}"
+
+- name: Instrucciones para consola interactiva
+  debug:
+    msg:
+      - "=========================================="
+      - "   PARA CONSOLA INTERACTIVA:"
+      - "=========================================="
+      - "Desde PowerShell local, ejecutar:"
+      - "  Enter-PSSession -ComputerName {{ inventory_hostname }}"
+      - ""
+      - "O usar el módulo de consola remota de la app Python."

@@ -1,0 +1,95 @@
+---
+# ============================================================================
+# Role: software - Task: install_office
+# Instalación silenciosa de Office 365
+# ============================================================================
+
+- name: Verificar si Office ya está instalado
+  ansible.windows.win_shell: |
+    $office = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+              Where-Object { $_.DisplayName -like "*Microsoft 365*" -or $_.DisplayName -like "*Office*" } |
+              Select-Object DisplayName, DisplayVersion
+    
+    if ($office) {
+      @{
+        installed = $true
+        name = $office.DisplayName
+        version = $office.DisplayVersion
+      } | ConvertTo-Json
+    } else {
+      @{ installed = $false } | ConvertTo-Json
+    }
+  register: office_check
+  changed_when: false
+
+- name: Parsear resultado de verificación
+  set_fact:
+    office_info: "{{ office_check.stdout | from_json }}"
+
+- name: Mostrar estado de Office
+  debug:
+    msg: "Office ya instalado: {{ office_info.name | default('N/A') }} v{{ office_info.version | default('N/A') }}"
+  when: office_info.installed
+
+- name: Verificar existencia del instalador
+  ansible.windows.win_stat:
+    path: "{{ office_installer_path }}"
+  register: installer_check
+  when: not office_info.installed
+
+- name: Error si no existe instalador
+  fail:
+    msg: "No se encontró el instalador de Office en {{ office_installer_path }}"
+  when: 
+    - not office_info.installed
+    - not installer_check.stat.exists | default(false)
+
+- name: Crear carpeta temporal para instalación
+  ansible.windows.win_file:
+    path: "C:\\Temp\\OfficeInstall"
+    state: directory
+  when: not office_info.installed
+
+- name: Ejecutar instalación de Office 365
+  ansible.windows.win_shell: |
+    $installer = "{{ office_installer_path }}"
+    $config = "{{ office_config_path }}"
+    
+    Write-Output "Iniciando instalación de Office 365..."
+    Write-Output "Instalador: $installer"
+    Write-Output "Configuración: $config"
+    
+    if (Test-Path $config) {
+      Start-Process -FilePath $installer -ArgumentList "/configure `"$config`"" -Wait -NoNewWindow
+    } else {
+      Start-Process -FilePath $installer -ArgumentList "/download configuration.xml" -Wait -NoNewWindow
+      Start-Process -FilePath $installer -ArgumentList "/configure configuration.xml" -Wait -NoNewWindow
+    }
+    
+    Write-Output "Instalación completada"
+  register: install_result
+  when: not office_info.installed
+  async: 3600  # 1 hora máximo
+  poll: 60
+
+- name: Verificar instalación
+  ansible.windows.win_shell: |
+    $office = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+              Where-Object { $_.DisplayName -like "*Microsoft 365*" -or $_.DisplayName -like "*Office*" } |
+              Select-Object -First 1
+    
+    if ($office) {
+      Write-Output "Office instalado correctamente: $($office.DisplayName)"
+    } else {
+      Write-Output "ADVERTENCIA: No se detectó Office después de la instalación"
+    }
+  register: post_install_check
+  when: not office_info.installed
+
+- name: Resumen de instalación
+  debug:
+    msg:
+      - "=========================================="
+      - "   INSTALACIÓN DE OFFICE - RESULTADO"
+      - "=========================================="
+      - "{{ 'Office ya estaba instalado' if office_info.installed else (post_install_check.stdout | default('Instalación completada')) }}"

@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# Playbook: Consumo de Ancho de Banda
+# ============================================================================
+# Muestra estadísticas de uso de red de todos los adaptadores activos
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/network/bandwidth_usage.yml \
+#     --extra-vars "target_host=NB001234"
+#
+# Información mostrada:
+#   - Bytes recibidos/enviados totales
+#   - Paquetes procesados
+#   - Errores de transmisión
+#   - Velocidad actual en tiempo real
+# ============================================================================
+
+- name: Consumo de Ancho de Banda
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar análisis de bandwidth
+      include_role:
+        name: network
+        tasks_from: bandwidth_usage.yml

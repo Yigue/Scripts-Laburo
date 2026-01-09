@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Actualizar Drivers DELL
+# ============================================================================
+# Ejecuta Dell Command Update para actualizar drivers
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/dell_drivers.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Actualizar drivers DELL
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar Dell Command Update
+      include_role:
+        name: hardware
+        tasks_from: dell_drivers.yml

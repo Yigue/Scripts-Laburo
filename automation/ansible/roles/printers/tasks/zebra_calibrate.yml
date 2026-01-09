@@ -1,0 +1,114 @@
+---
+# ============================================================================
+# Role: printers - Task: zebra_calibrate
+# Calibración de impresoras Zebra vía TCP/IP
+# ============================================================================
+
+- name: Verificar IP de Zebra proporcionada
+  fail:
+    msg: "Debe proporcionar la IP de la impresora Zebra con --extra-vars 'zebra_ip=X.X.X.X'"
+  when: zebra_ip is not defined or zebra_ip == ""
+
+- name: Verificar conectividad con la impresora Zebra
+  ansible.windows.win_shell: |
+    $ip = "{{ zebra_ip }}"
+    $port = {{ zebra_default_port | default(9100) }}
+    
+    try {
+      $tcpClient = New-Object System.Net.Sockets.TcpClient
+      $tcpClient.Connect($ip, $port)
+      
+      if ($tcpClient.Connected) {
+        $tcpClient.Close()
+        Write-Output "OK"
+      } else {
+        Write-Output "FAIL"
+      }
+    } catch {
+      Write-Output "FAIL: $($_.Exception.Message)"
+    }
+  register: zebra_connectivity
+  changed_when: false
+
+- name: Error si no hay conectividad
+  fail:
+    msg: "No se puede conectar a la impresora Zebra en {{ zebra_ip }}:{{ zebra_default_port | default(9100) }}"
+  when: "'FAIL' in zebra_connectivity.stdout"
+
+- name: Enviar comando de calibración ZPL
+  ansible.windows.win_shell: |
+    $ip = "{{ zebra_ip }}"
+    $port = {{ zebra_default_port | default(9100) }}
+    
+    # Comando de calibración (Media Calibration)
+    $calibCommand = "{{ zebra_calibration_command | default('~JC') }}"
+    
+    try {
+      $tcpClient = New-Object System.Net.Sockets.TcpClient
+      $tcpClient.Connect($ip, $port)
+      $tcpClient.ReceiveTimeout = 5000
+      $tcpClient.SendTimeout = 5000
+      
+      $stream = $tcpClient.GetStream()
+      $writer = New-Object System.IO.StreamWriter($stream)
+      
+      # Enviar comando
+      $writer.Write($calibCommand)
+      $writer.Flush()
+      
+      Start-Sleep -Seconds 2
+      
+      $writer.Close()
+      $stream.Close()
+      $tcpClient.Close()
+      
+      Write-Output "Comando de calibracion enviado: $calibCommand"
+      Write-Output "IP: $ip"
+      Write-Output "Puerto: $port"
+      Write-Output ""
+      Write-Output "La impresora deberia comenzar a calibrar los medios."
+      Write-Output "Espere a que termine antes de imprimir."
+    } catch {
+      Write-Output "ERROR: $($_.Exception.Message)"
+    }
+  register: calibration_result
+
+- name: Opción: Ejecutar Gap/Notch Sensing
+  ansible.windows.win_shell: |
+    $ip = "{{ zebra_ip }}"
+    $port = {{ zebra_default_port | default(9100) }}
+    
+    # Comando de Gap/Notch sensing
+    $gapCommand = "{{ zebra_gap_calibration_command | default('~JG') }}"
+    
+    try {
+      $tcpClient = New-Object System.Net.Sockets.TcpClient
+      $tcpClient.Connect($ip, $port)
+      
+      $stream = $tcpClient.GetStream()
+      $writer = New-Object System.IO.StreamWriter($stream)
+      
+      $writer.Write($gapCommand)
+      $writer.Flush()
+      
+      Start-Sleep -Seconds 2
+      
+      $writer.Close()
+      $stream.Close()
+      $tcpClient.Close()
+      
+      Write-Output "Gap Sensing ejecutado: $gapCommand"
+    } catch {
+      Write-Output "ERROR: $($_.Exception.Message)"
+    }
+  register: gap_result
+  when: run_gap_sensing | default(false) | bool
+
+- name: Resumen de calibración Zebra
+  debug:
+    msg:
+      - "=========================================="
+      - "    CALIBRACIÓN ZEBRA - RESULTADO"
+      - "=========================================="
+      - "{{ calibration_result.stdout_lines }}"
+      - "{{ gap_result.stdout_lines | default([]) }}"

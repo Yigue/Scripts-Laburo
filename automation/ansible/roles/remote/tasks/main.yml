@@ -1,0 +1,5 @@
+---
+# Role de Remote - Punto de entrada principal
+- name: Incluir tareas según variable task_name
+  include_tasks: "{{ task_name }}.yml"
+  when: task_name is defined

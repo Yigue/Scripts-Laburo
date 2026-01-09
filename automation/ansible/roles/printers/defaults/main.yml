@@ -1,0 +1,4 @@
+---
+# Variables por defecto para el role de printers
+zebra_port: 9100
+spooler_restart_delay: 5

@@ -1,0 +1,99 @@
+---
+# ============================================================================
+# Role: printers - Task: manage_printers
+# Gestión de impresoras y spooler
+# ============================================================================
+
+- name: Obtener estado del servicio Spooler
+  ansible.windows.win_service_info:
+    name: Spooler
+  register: spooler_status
+
+- name: Mostrar estado del Spooler
+  debug:
+    msg: "Servicio Spooler: {{ spooler_status.services[0].state | default('Desconocido') }}"
+
+- name: Listar impresoras instaladas
+  ansible.windows.win_shell: |
+    $printers = Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus, Shared
+    
+    Write-Output "=========================================="
+    Write-Output "       IMPRESORAS INSTALADAS"
+    Write-Output "=========================================="
+    
+    if ($printers.Count -eq 0) {
+      Write-Output "No hay impresoras instaladas"
+    } else {
+      foreach ($printer in $printers) {
+        Write-Output ""
+        Write-Output "Nombre: $($printer.Name)"
+        Write-Output "Driver: $($printer.DriverName)"
+        Write-Output "Puerto: $($printer.PortName)"
+        Write-Output "Estado: $($printer.PrinterStatus)"
+        Write-Output "Compartida: $($printer.Shared)"
+        Write-Output "---"
+      }
+    }
+  register: printers_list
+  changed_when: false
+
+- name: Obtener trabajos de impresión pendientes
+  ansible.windows.win_shell: |
+    $jobs = Get-PrintJob -PrinterName * -ErrorAction SilentlyContinue
+    
+    Write-Output "=========================================="
+    Write-Output "     TRABAJOS DE IMPRESIÓN PENDIENTES"
+    Write-Output "=========================================="
+    
+    if ($jobs.Count -eq 0) {
+      Write-Output "No hay trabajos pendientes"
+    } else {
+      Write-Output "Total: $($jobs.Count) trabajos"
+      Write-Output ""
+      foreach ($job in $jobs | Select-Object -First 10) {
+        Write-Output "Impresora: $($job.PrinterName)"
+        Write-Output "Documento: $($job.DocumentName)"
+        Write-Output "Estado: $($job.JobStatus)"
+        Write-Output "Tamaño: $($job.Size) bytes"
+        Write-Output "---"
+      }
+    }
+  register: print_jobs
+  changed_when: false
+  ignore_errors: true
+
+- name: Limpiar cola de impresión (si hay trabajos atascados)
+  ansible.windows.win_shell: |
+    $jobs = Get-PrintJob -PrinterName * -ErrorAction SilentlyContinue
+    
+    if ($jobs.Count -gt 0) {
+      Write-Output "Limpiando $($jobs.Count) trabajos..."
+      
+      # Detener spooler
+      Stop-Service Spooler -Force -ErrorAction SilentlyContinue
+      
+      # Eliminar archivos de cola
+      Remove-Item "C:\Windows\System32\spool\PRINTERS\*" -Force -ErrorAction SilentlyContinue
+      
+      # Reiniciar spooler
+      Start-Service Spooler -ErrorAction SilentlyContinue
+      
+      Write-Output "Cola de impresión limpiada"
+    } else {
+      Write-Output "No hay trabajos que limpiar"
+    }
+  register: queue_cleanup
+  when: clean_queue | default(false) | bool
+
+- name: Reiniciar servicio Spooler
+  ansible.windows.win_service:
+    name: Spooler
+    state: restarted
+  register: spooler_restart
+  when: restart_spooler | default(false) | bool
+
+- name: Resumen de gestión de impresoras
+  debug:
+    msg:
+      - "{{ printers_list.stdout_lines }}"
+      - "{{ print_jobs.stdout_lines | default(['Sin info de trabajos']) }}"

@@ -1,0 +1,23 @@
+---
+# Verificar si Dell Command Update está instalado
+- name: Verificar Dell Command Update instalado
+  ansible.windows.win_shell: |
+    $dcu = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | 
+           Where-Object { $_.DisplayName -like "*Dell Command*Update*" } | 
+           Select-Object DisplayName, DisplayVersion
+    if ($dcu) {
+      @{
+        installed = $true
+        name = $dcu.DisplayName
+        version = $dcu.DisplayVersion
+      } | ConvertTo-Json
+    } else {
+      @{ installed = $false } | ConvertTo-Json
+    }
+  register: dell_command_check
+  changed_when: false
+
+- name: Parsear resultado Dell Command Update
+  set_fact:
+    dell_command_installed: "{{ (dell_command_check.stdout | from_json).installed }}"
+    dell_command_version: "{{ (dell_command_check.stdout | from_json).version | default('N/A') }}"

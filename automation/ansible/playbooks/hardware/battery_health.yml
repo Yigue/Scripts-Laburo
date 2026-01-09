@@ -1,0 +1,22 @@
+---
+# ============================================================================
+# Playbook: Salud de Batería (Solo Laptops)
+# ============================================================================
+# Genera un reporte detallado del estado de la batería
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/battery_health.yml \
+#     --extra-vars "target_host=NB001234"
+#
+# NOTA: Solo funciona en laptops, mostrará aviso en desktops
+# ============================================================================
+
+- name: Reporte de Salud de Batería
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar diagnóstico de batería
+      include_role:
+        name: hardware
+        tasks_from: battery_health.yml

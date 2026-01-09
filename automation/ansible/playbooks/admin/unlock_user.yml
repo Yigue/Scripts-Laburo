@@ -1,0 +1,22 @@
+---
+# ============================================================================
+# Playbook: Desbloquear Usuario en Active Directory
+# ============================================================================
+# Desbloquea una cuenta de usuario bloqueada en AD
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/admin/unlock_user.yml \
+#     --extra-vars "target_host=DC01 ad_username=jperez"
+#
+# NOTA: target_host debe ser el Domain Controller o un equipo con RSAT
+# ============================================================================
+
+- name: Desbloquear Usuario en AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar desbloqueo de usuario
+      include_role:
+        name: admin
+        tasks_from: unlock_user.yml

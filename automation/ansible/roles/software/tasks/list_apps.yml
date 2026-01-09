@@ -1,0 +1,54 @@
+---
+# ============================================================================
+# Role: software - Task: list_apps
+# Lista todas las aplicaciones instaladas
+# ============================================================================
+
+- name: Obtener lista de aplicaciones instaladas
+  ansible.windows.win_shell: |
+    $apps = @()
+    $index = 1
+    
+    # Obtener de registro (32-bit y 64-bit)
+    $paths = @(
+      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+      "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    
+    foreach ($path in $paths) {
+      Get-ItemProperty $path -ErrorAction SilentlyContinue | 
+      Where-Object { $_.DisplayName -and $_.DisplayName -notlike "*Update*" } |
+      ForEach-Object {
+        $apps += [PSCustomObject]@{
+          Index = $index
+          Name = $_.DisplayName
+          Version = $_.DisplayVersion
+          Publisher = $_.Publisher
+        }
+        $index++
+      }
+    }
+    
+    # Eliminar duplicados por nombre
+    $uniqueApps = $apps | Sort-Object Name -Unique
+    
+    Write-Output "=========================================="
+    Write-Output "     APLICACIONES INSTALADAS"
+    Write-Output "=========================================="
+    Write-Output "Total: $($uniqueApps.Count) aplicaciones"
+    Write-Output "------------------------------------------"
+    
+    $i = 1
+    foreach ($app in $uniqueApps | Sort-Object Name) {
+      Write-Output "[$i] $($app.Name)"
+      Write-Output "    Version: $($app.Version)"
+      Write-Output "    Publisher: $($app.Publisher)"
+      Write-Output ""
+      $i++
+    }
+  register: apps_list
+  changed_when: false
+
+- name: Mostrar lista de aplicaciones
+  debug:
+    msg: "{{ apps_list.stdout_lines }}"

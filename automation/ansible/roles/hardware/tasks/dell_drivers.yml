@@ -1,0 +1,56 @@
+---
+# ============================================================================
+# Role: hardware - Task: dell_drivers
+# Actualiza drivers usando Dell Command Update
+# ============================================================================
+
+- name: Verificar Dell Command Update instalado
+  include_tasks: "{{ role_path }}/../common/tasks/check_dell_command_update.yml"
+
+- name: Verificar que Dell Command Update está instalado
+  fail:
+    msg: "Dell Command Update no está instalado en este equipo"
+  when: not dell_command_installed | default(false)
+
+- name: Ejecutar Dell Command Update - Buscar actualizaciones
+  ansible.windows.win_shell: |
+    $dcuPath = "{{ dell_command_update_path }}"
+    
+    if (Test-Path $dcuPath) {
+      Write-Output "Iniciando Dell Command Update..."
+      Write-Output "Buscando actualizaciones disponibles..."
+      
+      # Ejecutar DCU para buscar actualizaciones
+      $result = & $dcuPath /scan
+      
+      Write-Output "Resultado del escaneo:"
+      Write-Output $result
+    } else {
+      Write-Output "ERROR: Dell Command Update no encontrado en $dcuPath"
+    }
+  register: dcu_scan
+  changed_when: false
+
+- name: Ejecutar Dell Command Update - Aplicar actualizaciones
+  ansible.windows.win_shell: |
+    $dcuPath = "{{ dell_command_update_path }}"
+    
+    Write-Output "Aplicando actualizaciones (sin reinicio automático)..."
+    $result = & $dcuPath {{ dell_command_update_args | default('/applyUpdates -reboot=disable') }}
+    
+    Write-Output "Resultado:"
+    Write-Output $result
+  register: dcu_apply
+  when: dell_command_installed | default(false)
+  async: 1800  # 30 minutos máximo
+  poll: 60
+
+- name: Resumen de actualización de drivers
+  debug:
+    msg:
+      - "=========================================="
+      - "    DELL COMMAND UPDATE - RESULTADO"
+      - "=========================================="
+      - "{{ dcu_scan.stdout_lines | default(['Sin información de escaneo']) }}"
+      - "----------------------------------------"
+      - "{{ dcu_apply.stdout_lines | default(['Actualizaciones aplicadas']) }}"

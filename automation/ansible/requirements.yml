@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# IT-Ops CLI - Colecciones de Ansible
+# ============================================================================
+# Instalar con: ansible-galaxy collection install -r requirements.yml
+# ============================================================================
+
+collections:
+  # Colección base para Windows (módulos win_*)
+  - name: ansible.windows
+    version: ">=1.15.0"
+  
+  # Funciones extra para Windows (updates, psexec, domain, etc.)
+  - name: community.windows
+    version: ">=2.0.0"
+  
+  # Microsoft AD para desbloquear usuarios y LAPS (CRÍTICO)
+  - name: microsoft.ad
+    version: ">=1.3.0"
+  
+  # Chocolatey (opcional pero útil para instalación de software)
+  - name: chocolatey.chocolatey
+    version: ">=1.5.0"
+
+# Roles adicionales (si necesitamos alguno en el futuro)
+roles: []

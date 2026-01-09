@@ -1,0 +1,162 @@
+---
+# ============================================================================
+# Role: network - Task: speedtest
+# Test de velocidad de conexión a Internet
+# ============================================================================
+# Métodos disponibles:
+# 1. PowerShell puro (siempre disponible)
+# 2. speedtest-cli (si está instalado)
+# ============================================================================
+
+- name: Test de velocidad usando PowerShell puro
+  ansible.windows.win_shell: |
+    # Test de descarga usando múltiples servidores
+    function Test-DownloadSpeed {
+      param([string]$Url, [int]$SizeMB = 10)
+      
+      try {
+        $webClient = New-Object System.Net.WebClient
+        $start = Get-Date
+        
+        # Descargar archivo de prueba (usamos un archivo conocido)
+        $tempFile = "$env:TEMP\speedtest_$(Get-Random).tmp"
+        $webClient.DownloadFile($Url, $tempFile)
+        
+        $end = Get-Date
+        $duration = ($end - $start).TotalSeconds
+        
+        $fileSize = (Get-Item $tempFile).Length / 1MB
+        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+        
+        $speedMbps = ($fileSize * 8) / $duration
+        
+        return @{
+          success = $true
+          speed_mbps = [math]::Round($speedMbps, 2)
+          size_mb = [math]::Round($fileSize, 2)
+          duration_s = [math]::Round($duration, 2)
+        }
+      } catch {
+        return @{ success = $false; error = $_.Exception.Message }
+      }
+    }
+    
+    # Test de latencia
+    function Test-Latency {
+      param([string[]]$Hosts)
+      
+      $results = @()
+      
+      foreach ($h in $Hosts) {
+        try {
+          $pings = Test-Connection -ComputerName $h -Count 4 -ErrorAction Stop
+          $avg = ($pings | Measure-Object -Property ResponseTime -Average).Average
+          $min = ($pings | Measure-Object -Property ResponseTime -Minimum).Minimum
+          $max = ($pings | Measure-Object -Property ResponseTime -Maximum).Maximum
+          
+          $results += @{
+            host = $h
+            success = $true
+            avg_ms = [math]::Round($avg, 1)
+            min_ms = $min
+            max_ms = $max
+          }
+        } catch {
+          $results += @{ host = $h; success = $false; error = $_.Exception.Message }
+        }
+      }
+      
+      return $results
+    }
+    
+    # Ejecutar tests
+    $latencyHosts = @('8.8.8.8', '1.1.1.1', 'microsoft.com', 'google.com')
+    $latencyResults = Test-Latency -Hosts $latencyHosts
+    
+    # Test de descarga (usamos archivo de prueba de Microsoft o similar)
+    $downloadTests = @(
+      @{ name = "Microsoft CDN"; url = "https://speed.cloudflare.com/__down?bytes=10000000" }
+    )
+    
+    $downloadResults = @()
+    foreach ($test in $downloadTests) {
+      Write-Host "Probando descarga: $($test.name)..." -NoNewline
+      $result = Test-DownloadSpeed -Url $test.url
+      $result.source = $test.name
+      $downloadResults += $result
+      if ($result.success) {
+        Write-Host " $($result.speed_mbps) Mbps"
+      } else {
+        Write-Host " Error"
+      }
+    }
+    
+    # Calcular promedio de latencia
+    $avgLatency = ($latencyResults | Where-Object { $_.success } | Measure-Object -Property avg_ms -Average).Average
+    
+    # Mejor velocidad de descarga
+    $bestDownload = ($downloadResults | Where-Object { $_.success } | Sort-Object -Property speed_mbps -Descending | Select-Object -First 1)
+    
+    @{
+      timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+      latency = @{
+        average_ms = [math]::Round($avgLatency, 1)
+        details = $latencyResults
+      }
+      download = @{
+        speed_mbps = $bestDownload.speed_mbps
+        source = $bestDownload.source
+        all_tests = $downloadResults
+      }
+      jitter_ms = [math]::Round((($latencyResults | Where-Object { $_.success } | Measure-Object -Property max_ms -Maximum).Maximum - ($latencyResults | Where-Object { $_.success } | Measure-Object -Property min_ms -Minimum).Minimum) / 2, 1)
+    } | ConvertTo-Json -Depth 4
+  register: speedtest_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear resultados de speedtest
+  set_fact:
+    speedtest: "{{ speedtest_raw.stdout | from_json }}"
+  when: speedtest_raw.stdout is defined
+
+- name: Mostrar resultados de velocidad
+  debug:
+    msg:
+      - "=========================================="
+      - "     🚀 TEST DE VELOCIDAD DE INTERNET"
+      - "=========================================="
+      - "Fecha: {{ speedtest.timestamp | default('N/A') }}"
+      - ""
+      - "📥 DESCARGA:"
+      - "   Velocidad: {{ speedtest.download.speed_mbps | default('N/A') }} Mbps"
+      - "   Fuente: {{ speedtest.download.source | default('N/A') }}"
+      - ""
+      - "📊 LATENCIA:"
+      - "   Promedio: {{ speedtest.latency.average_ms | default('N/A') }} ms"
+      - "   Jitter: {{ speedtest.jitter_ms | default('N/A') }} ms"
+      - ""
+      - "=========================================="
+  when: speedtest is defined
+
+- name: Detalles de latencia por servidor
+  debug:
+    msg: "{{ '✅' if item.success else '❌' }} {{ item.host }}: {{ item.avg_ms ~ 'ms (min:' ~ item.min_ms ~ ', max:' ~ item.max_ms ~ ')' if item.success else 'Error' }}"
+  loop: "{{ speedtest.latency.details | default([]) }}"
+  when: speedtest is defined
+
+- name: Evaluación de conexión
+  debug:
+    msg:
+      - "=========================================="
+      - "     📋 EVALUACIÓN"
+      - "=========================================="
+      - "{{ '✅ Velocidad excelente' if (speedtest.download.speed_mbps | default(0) | float) > 50 else ('✅ Velocidad buena' if (speedtest.download.speed_mbps | default(0) | float) > 20 else ('⚠️ Velocidad aceptable' if (speedtest.download.speed_mbps | default(0) | float) > 5 else '❌ Velocidad baja')) }}"
+      - "{{ '✅ Latencia excelente' if (speedtest.latency.average_ms | default(999) | float) < 30 else ('✅ Latencia buena' if (speedtest.latency.average_ms | default(999) | float) < 60 else ('⚠️ Latencia alta' if (speedtest.latency.average_ms | default(999) | float) < 100 else '❌ Latencia muy alta')) }}"
+  when: speedtest is defined
+
+- name: Set speedtest_facts
+  set_fact:
+    speedtest_results:
+      download_mbps: "{{ speedtest.download.speed_mbps | default(0) }}"
+      latency_ms: "{{ speedtest.latency.average_ms | default(0) }}"
+      jitter_ms: "{{ speedtest.jitter_ms | default(0) }}"

@@ -1,0 +1,4 @@
+---
+# Variables por defecto para el role de network
+dns_flush_timeout: 30
+gpupdate_timeout: 120

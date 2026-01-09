@@ -1,0 +1,36 @@
+---
+# Verificar actualizaciones de Windows pendientes
+- name: Verificar actualizaciones de Windows pendientes
+  ansible.windows.win_shell: |
+    try {
+      $updateSession = New-Object -ComObject Microsoft.Update.Session
+      $updateSearcher = $updateSession.CreateUpdateSearcher()
+      $searchResult = $updateSearcher.Search("IsInstalled=0")
+      
+      $updates = @()
+      foreach ($update in $searchResult.Updates) {
+        $updates += @{
+          title = $update.Title
+          severity = $update.MsrcSeverity
+          kb = ($update.KBArticleIDs -join ", ")
+        }
+      }
+      
+      @{
+        pending_count = $searchResult.Updates.Count
+        updates = $updates
+      } | ConvertTo-Json -Depth 3
+    } catch {
+      @{
+        pending_count = -1
+        error = $_.Exception.Message
+      } | ConvertTo-Json
+    }
+  register: windows_updates_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Parsear resultado Windows Updates
+  set_fact:
+    windows_updates: "{{ windows_updates_check.stdout | from_json }}"
+  when: windows_updates_check.stdout is defined

@@ -1,0 +1,173 @@
+---
+# ============================================================================
+# Role: network - Task: bandwidth_usage
+# Ver consumo de ancho de banda de los adaptadores de red
+# ============================================================================
+
+- name: Obtener estadísticas de adaptadores de red
+  ansible.windows.win_shell: |
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
+    
+    $results = @()
+    
+    foreach ($adapter in $adapters) {
+      try {
+        $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction Stop
+        
+        $receivedGB = [math]::Round($stats.ReceivedBytes / 1GB, 3)
+        $sentGB = [math]::Round($stats.SentBytes / 1GB, 3)
+        $totalGB = [math]::Round(($stats.ReceivedBytes + $stats.SentBytes) / 1GB, 3)
+        
+        $results += @{
+          name = $adapter.Name
+          description = $adapter.InterfaceDescription
+          status = $adapter.Status
+          linkSpeed = $adapter.LinkSpeed
+          macAddress = $adapter.MacAddress
+          received_bytes = $stats.ReceivedBytes
+          received_gb = $receivedGB
+          sent_bytes = $stats.SentBytes
+          sent_gb = $sentGB
+          total_gb = $totalGB
+          received_packets = $stats.ReceivedUnicastPackets
+          sent_packets = $stats.SentUnicastPackets
+          received_errors = $stats.ReceivedPacketErrors
+          sent_errors = $stats.OutboundPacketErrors
+          received_discards = $stats.ReceivedDiscards
+          sent_discards = $stats.OutboundDiscards
+        }
+      } catch {
+        $results += @{
+          name = $adapter.Name
+          error = $_.Exception.Message
+        }
+      }
+    }
+    
+    @{
+      timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+      adapter_count = $results.Count
+      adapters = $results
+    } | ConvertTo-Json -Depth 3
+  register: bandwidth_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear estadísticas de bandwidth
+  set_fact:
+    bandwidth: "{{ bandwidth_raw.stdout | from_json }}"
+  when: bandwidth_raw.stdout is defined
+
+- name: Obtener velocidad actual (bytes/segundo)
+  ansible.windows.win_shell: |
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
+    
+    # Primera medición
+    $first = @{}
+    foreach ($adapter in $adapters) {
+      $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue
+      if ($stats) {
+        $first[$adapter.Name] = @{
+          received = $stats.ReceivedBytes
+          sent = $stats.SentBytes
+        }
+      }
+    }
+    
+    # Esperar 2 segundos
+    Start-Sleep -Seconds 2
+    
+    # Segunda medición
+    $results = @()
+    foreach ($adapter in $adapters) {
+      $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue
+      if ($stats -and $first[$adapter.Name]) {
+        $receivedDiff = $stats.ReceivedBytes - $first[$adapter.Name].received
+        $sentDiff = $stats.SentBytes - $first[$adapter.Name].sent
+        
+        # Convertir a Mbps (bytes * 8 / 2 segundos / 1000000)
+        $receivedMbps = [math]::Round(($receivedDiff * 8) / 2 / 1000000, 2)
+        $sentMbps = [math]::Round(($sentDiff * 8) / 2 / 1000000, 2)
+        
+        $results += @{
+          name = $adapter.Name
+          download_mbps = $receivedMbps
+          upload_mbps = $sentMbps
+          total_mbps = [math]::Round($receivedMbps + $sentMbps, 2)
+        }
+      }
+    }
+    
+    @{
+      measurement_duration_s = 2
+      current_usage = $results
+    } | ConvertTo-Json -Depth 3
+  register: current_speed_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear velocidad actual
+  set_fact:
+    current_speed: "{{ current_speed_raw.stdout | from_json }}"
+  when: current_speed_raw.stdout is defined
+
+- name: Mostrar encabezado de estadísticas
+  debug:
+    msg:
+      - "=========================================="
+      - "     📊 CONSUMO DE ANCHO DE BANDA"
+      - "=========================================="
+      - "Fecha: {{ bandwidth.timestamp | default('N/A') }}"
+      - "Adaptadores activos: {{ bandwidth.adapter_count | default(0) }}"
+      - "=========================================="
+  when: bandwidth is defined
+
+- name: Mostrar estadísticas de cada adaptador
+  debug:
+    msg:
+      - "---"
+      - "🔌 {{ item.name }}"
+      - "   {{ item.description | default('') }}"
+      - "   Velocidad enlace: {{ item.linkSpeed | default('N/A') }}"
+      - ""
+      - "   📥 Recibido: {{ item.received_gb | default('N/A') }} GB ({{ item.received_packets | default(0) }} paquetes)"
+      - "   📤 Enviado: {{ item.sent_gb | default('N/A') }} GB ({{ item.sent_packets | default(0) }} paquetes)"
+      - "   📊 Total: {{ item.total_gb | default('N/A') }} GB"
+      - ""
+      - "   ❌ Errores RX: {{ item.received_errors | default(0) }} | Descartados: {{ item.received_discards | default(0) }}"
+      - "   ❌ Errores TX: {{ item.sent_errors | default(0) }} | Descartados: {{ item.sent_discards | default(0) }}"
+  loop: "{{ bandwidth.adapters | default([]) }}"
+  when: 
+    - bandwidth is defined
+    - item.error is not defined
+
+- name: Mostrar velocidad actual
+  debug:
+    msg:
+      - "=========================================="
+      - "     ⚡ VELOCIDAD ACTUAL (tiempo real)"
+      - "=========================================="
+
+- name: Detalles de velocidad actual por adaptador
+  debug:
+    msg: "{{ item.name }}: ↓ {{ item.download_mbps }} Mbps | ↑ {{ item.upload_mbps }} Mbps | Total: {{ item.total_mbps }} Mbps"
+  loop: "{{ current_speed.current_usage | default([]) }}"
+  when: current_speed is defined
+
+- name: Advertencias de errores
+  debug:
+    msg: "⚠️ ADVERTENCIA: Adaptador '{{ item.name }}' tiene errores de paquetes (RX: {{ item.received_errors }}, TX: {{ item.sent_errors }})"
+  loop: "{{ bandwidth.adapters | default([]) }}"
+  when:
+    - bandwidth is defined
+    - item.error is not defined
+    - (item.received_errors | default(0) | int) > 0 or (item.sent_errors | default(0) | int) > 0
+
+- name: Set bandwidth_facts
+  set_fact:
+    bandwidth_summary:
+      timestamp: "{{ bandwidth.timestamp | default('N/A') }}"
+      total_received_gb: "{{ bandwidth.adapters | default([]) | map(attribute='received_gb') | select('defined') | sum | round(2) }}"
+      total_sent_gb: "{{ bandwidth.adapters | default([]) | map(attribute='sent_gb') | select('defined') | sum | round(2) }}"
+      adapters: "{{ bandwidth.adapters | default([]) }}"
+      current_usage: "{{ current_speed.current_usage | default([]) }}"

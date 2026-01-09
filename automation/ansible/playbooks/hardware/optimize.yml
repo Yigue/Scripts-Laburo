@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Optimizar Sistema
+# ============================================================================
+# Limpieza de disco, archivos temporales, desfragmentación
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/optimize.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Optimizar sistema
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar tareas de optimización
+      include_role:
+        name: hardware
+        tasks_from: optimize.yml

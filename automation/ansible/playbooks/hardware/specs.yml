@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Especificaciones del Sistema
+# ============================================================================
+# Obtiene información completa del hardware y sistema operativo
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/specs.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Obtener especificaciones del sistema
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar tareas de specs
+      include_role:
+        name: hardware
+        tasks_from: specs.yml

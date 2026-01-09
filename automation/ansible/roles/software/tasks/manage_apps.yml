@@ -1,0 +1,108 @@
+---
+# ============================================================================
+# Role: software - Task: manage_apps
+# Gestión de aplicaciones (listar, buscar, desinstalar)
+# ============================================================================
+
+- name: Listar aplicaciones instaladas (resumen)
+  ansible.windows.win_shell: |
+    $apps = @()
+    
+    $paths = @(
+      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+      "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    
+    foreach ($path in $paths) {
+      Get-ItemProperty $path -ErrorAction SilentlyContinue | 
+      Where-Object { $_.DisplayName -and $_.DisplayName -notlike "*Update*" } |
+      ForEach-Object {
+        $apps += [PSCustomObject]@{
+          Name = $_.DisplayName
+          Version = $_.DisplayVersion
+          Publisher = $_.Publisher
+          UninstallString = $_.UninstallString
+        }
+      }
+    }
+    
+    $uniqueApps = $apps | Sort-Object Name -Unique | Sort-Object Name
+    
+    Write-Output "=========================================="
+    Write-Output "     RESUMEN DE APLICACIONES"
+    Write-Output "=========================================="
+    Write-Output "Total instaladas: $($uniqueApps.Count)"
+    Write-Output ""
+    Write-Output "Categorías principales:"
+    
+    # Contar por categorías comunes
+    $microsoft = ($uniqueApps | Where-Object { $_.Publisher -like "*Microsoft*" }).Count
+    $adobe = ($uniqueApps | Where-Object { $_.Publisher -like "*Adobe*" }).Count
+    $google = ($uniqueApps | Where-Object { $_.Publisher -like "*Google*" }).Count
+    
+    Write-Output "  Microsoft: $microsoft"
+    Write-Output "  Adobe: $adobe"
+    Write-Output "  Google: $google"
+    Write-Output "  Otros: $($uniqueApps.Count - $microsoft - $adobe - $google)"
+    Write-Output ""
+    Write-Output "Ultimas 10 aplicaciones (por nombre):"
+    
+    $uniqueApps | Select-Object -Last 10 | ForEach-Object {
+      Write-Output "  - $($_.Name)"
+    }
+  register: apps_summary
+  changed_when: false
+
+- name: Buscar aplicación específica
+  ansible.windows.win_shell: |
+    $searchTerm = "{{ search_term | default('') }}"
+    
+    if (-not $searchTerm) {
+      Write-Output "No se especificó término de búsqueda"
+      exit 0
+    }
+    
+    $apps = @()
+    
+    $paths = @(
+      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+      "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    
+    foreach ($path in $paths) {
+      Get-ItemProperty $path -ErrorAction SilentlyContinue | 
+      Where-Object { $_.DisplayName -like "*$searchTerm*" } |
+      ForEach-Object {
+        $apps += [PSCustomObject]@{
+          Name = $_.DisplayName
+          Version = $_.DisplayVersion
+          Publisher = $_.Publisher
+        }
+      }
+    }
+    
+    $uniqueApps = $apps | Sort-Object Name -Unique
+    
+    Write-Output "=========================================="
+    Write-Output "  RESULTADOS PARA: $searchTerm"
+    Write-Output "=========================================="
+    
+    if ($uniqueApps.Count -eq 0) {
+      Write-Output "No se encontraron aplicaciones"
+    } else {
+      Write-Output "Encontradas: $($uniqueApps.Count)"
+      Write-Output ""
+      foreach ($app in $uniqueApps) {
+        Write-Output "Nombre: $($app.Name)"
+        Write-Output "Version: $($app.Version)"
+        Write-Output "Publisher: $($app.Publisher)"
+        Write-Output "---"
+      }
+    }
+  register: search_result
+  when: search_term is defined
+  changed_when: false
+
+- name: Mostrar resumen
+  debug:
+    msg: "{{ apps_summary.stdout_lines }}"

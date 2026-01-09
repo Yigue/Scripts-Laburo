@@ -1,0 +1,291 @@
+---
+# ============================================================================
+# Role: network - Task: wifi_analyzer
+# Análisis completo de conexión Wi-Fi y redes disponibles
+# ============================================================================
+
+- name: Obtener información completa de interfaz Wi-Fi
+  ansible.windows.win_shell: |
+    $wlanOutput = netsh wlan show interfaces
+    
+    $wifiInfo = @{
+      connected = $false
+      ssid = ""
+      bssid = ""
+      signal = 0
+      signalQuality = ""
+      radioType = ""
+      channel = 0
+      band = ""
+      speed = 0
+      authentication = ""
+      cipher = ""
+      state = ""
+      adapterName = ""
+    }
+    
+    foreach ($line in $wlanOutput -split "`n") {
+      $line = $line.Trim()
+      
+      if ($line -match "^\s*Name\s*:\s*(.+)$" -or $line -match "^\s*Nombre\s*:\s*(.+)$") {
+        $wifiInfo.adapterName = $matches[1].Trim()
+      }
+      elseif ($line -match "^\s*SSID\s*:\s*(.+)$" -and $line -notmatch "BSSID") {
+        $wifiInfo.ssid = $matches[1].Trim()
+        $wifiInfo.connected = $true
+      }
+      elseif ($line -match "^\s*BSSID\s*:\s*(.+)$") {
+        $wifiInfo.bssid = $matches[1].Trim()
+      }
+      elseif ($line -match "Se.+al\s*:\s*(\d+)" -or $line -match "Signal\s*:\s*(\d+)") {
+        $wifiInfo.signal = [int]$matches[1].Trim()
+      }
+      elseif ($line -match "Radio type\s*:\s*(.+)$" -or $line -match "Tipo de radio\s*:\s*(.+)$") {
+        $wifiInfo.radioType = $matches[1].Trim()
+      }
+      elseif ($line -match "Channel\s*:\s*(\d+)" -or $line -match "Canal\s*:\s*(\d+)") {
+        $wifiInfo.channel = [int]$matches[1].Trim()
+      }
+      elseif ($line -match "Receive rate.*:\s*([\d.]+)" -or $line -match "Velocidad de recepci.+n.*:\s*([\d.]+)") {
+        $wifiInfo.speed = [double]$matches[1].Trim()
+      }
+      elseif ($line -match "State\s*:\s*(.+)$" -or $line -match "Estado\s*:\s*(.+)$") {
+        $wifiInfo.state = $matches[1].Trim()
+      }
+      elseif ($line -match "Authentication\s*:\s*(.+)$" -or $line -match "Autenticaci.+n\s*:\s*(.+)$") {
+        $wifiInfo.authentication = $matches[1].Trim()
+      }
+      elseif ($line -match "Cipher\s*:\s*(.+)$" -or $line -match "Cifrado\s*:\s*(.+)$") {
+        $wifiInfo.cipher = $matches[1].Trim()
+      }
+    }
+    
+    # Determinar banda
+    if ($wifiInfo.channel -ge 36) {
+      $wifiInfo.band = "5 GHz"
+    } elseif ($wifiInfo.channel -ge 1 -and $wifiInfo.channel -le 14) {
+      $wifiInfo.band = "2.4 GHz"
+    }
+    
+    # Clasificar calidad de señal
+    $signal = $wifiInfo.signal
+    if ($signal -ge 80) { $wifiInfo.signalQuality = "Excelente" }
+    elseif ($signal -ge 60) { $wifiInfo.signalQuality = "Buena" }
+    elseif ($signal -ge 40) { $wifiInfo.signalQuality = "Aceptable" }
+    elseif ($signal -ge 20) { $wifiInfo.signalQuality = "Débil" }
+    elseif ($signal -gt 0) { $wifiInfo.signalQuality = "Muy débil" }
+    else { $wifiInfo.signalQuality = "Sin señal" }
+    
+    $wifiInfo | ConvertTo-Json
+  register: wifi_info_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear información Wi-Fi
+  set_fact:
+    wifi_info: "{{ wifi_info_raw.stdout | from_json }}"
+
+- name: Escanear redes Wi-Fi disponibles
+  ansible.windows.win_shell: |
+    $networksOutput = netsh wlan show networks mode=bssid
+    
+    $networks = @()
+    $currentNetwork = @{}
+    
+    foreach ($line in $networksOutput -split "`n") {
+      $line = $line.Trim()
+      
+      if ($line -match "^SSID \d+\s*:\s*(.*)$") {
+        if ($currentNetwork.ssid) {
+          $networks += $currentNetwork
+        }
+        $currentNetwork = @{
+          ssid = $matches[1].Trim()
+          bssid = ""
+          signal = 0
+          channel = 0
+          radioType = ""
+        }
+      }
+      elseif ($line -match "^\s*BSSID \d+\s*:\s*(.+)$") {
+        $currentNetwork.bssid = $matches[1].Trim()
+      }
+      elseif ($line -match "Se.+al\s*:\s*(\d+)" -or $line -match "Signal\s*:\s*(\d+)") {
+        $currentNetwork.signal = [int]$matches[1].Trim()
+      }
+      elseif ($line -match "Channel\s*:\s*(\d+)" -or $line -match "Canal\s*:\s*(\d+)") {
+        $currentNetwork.channel = [int]$matches[1].Trim()
+      }
+      elseif ($line -match "Radio type\s*:\s*(.+)$" -or $line -match "Tipo de radio\s*:\s*(.+)$") {
+        $currentNetwork.radioType = $matches[1].Trim()
+      }
+    }
+    
+    if ($currentNetwork.ssid) {
+      $networks += $currentNetwork
+    }
+    
+    # Ordenar por señal descendente
+    $networks = $networks | Sort-Object { -$_.signal }
+    
+    @{
+      count = $networks.Count
+      networks = $networks
+    } | ConvertTo-Json -Depth 3
+  register: available_networks_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear redes disponibles
+  set_fact:
+    available_networks: "{{ available_networks_raw.stdout | from_json }}"
+
+- name: Obtener información de red (IP, Gateway, DNS)
+  ansible.windows.win_shell: |
+    try {
+      $activeAdapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*') } | Select-Object -First 1
+      
+      $ip = (Get-NetIPAddress -InterfaceIndex $activeAdapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1).IPAddress
+      $gateway = (Get-NetRoute -InterfaceIndex $activeAdapter.ifIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop
+      $dnsServers = (Get-DnsClientServerAddress -InterfaceIndex $activeAdapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
+      
+      @{
+        success = $true
+        ip = $ip
+        gateway = $gateway
+        dns = $dnsServers -join ', '
+        adapter = $activeAdapter.Name
+        macAddress = $activeAdapter.MacAddress
+        linkSpeed = $activeAdapter.LinkSpeed
+      } | ConvertTo-Json
+    } catch {
+      @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: network_config_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear configuración de red
+  set_fact:
+    network_config: "{{ network_config_raw.stdout | from_json }}"
+
+- name: Test de conectividad avanzado
+  ansible.windows.win_shell: |
+    $targets = @(
+      @{ name = "Gateway Local"; target = "{{ (network_config.gateway | default('')) }}" },
+      @{ name = "Google DNS"; target = "8.8.8.8" },
+      @{ name = "Cloudflare DNS"; target = "1.1.1.1" },
+      @{ name = "Google.com"; target = "google.com" },
+      @{ name = "Microsoft.com"; target = "microsoft.com" }
+    )
+    
+    $results = @()
+    
+    foreach ($t in $targets) {
+      if ($t.target) {
+        try {
+          $ping = Test-Connection -ComputerName $t.target -Count 2 -ErrorAction Stop
+          $avgLatency = ($ping | Measure-Object -Property ResponseTime -Average).Average
+          
+          $results += @{
+            name = $t.name
+            target = $t.target
+            success = $true
+            latency_ms = [math]::Round($avgLatency, 1)
+          }
+        } catch {
+          $results += @{
+            name = $t.name
+            target = $t.target
+            success = $false
+            latency_ms = -1
+          }
+        }
+      }
+    }
+    
+    @{
+      results = $results
+      internetAccess = ($results | Where-Object { $_.target -eq 'google.com' }).success
+    } | ConvertTo-Json -Depth 3
+  register: connectivity_raw
+  changed_when: false
+  failed_when: false
+
+- name: Parsear test de conectividad
+  set_fact:
+    connectivity: "{{ connectivity_raw.stdout | from_json }}"
+
+- name: Mostrar resumen Wi-Fi
+  debug:
+    msg:
+      - "=========================================="
+      - "     📶 ANÁLISIS COMPLETO DE WI-FI"
+      - "=========================================="
+      - ""
+      - "🔌 CONEXIÓN ACTUAL:"
+      - "   SSID: {{ wifi_info.ssid | default('No conectado') }}"
+      - "   BSSID (MAC AP): {{ wifi_info.bssid | default('N/A') }}"
+      - "   Estado: {{ wifi_info.state | default('N/A') }}"
+      - ""
+      - "📊 CALIDAD DE SEÑAL:"
+      - "   Señal: {{ wifi_info.signal | default(0) }}%"
+      - "   Calidad: {{ wifi_info.signalQuality | default('N/A') }}"
+      - "   Banda: {{ wifi_info.band | default('N/A') }}"
+      - "   Canal: {{ wifi_info.channel | default('N/A') }}"
+      - "   Velocidad: {{ wifi_info.speed | default(0) }} Mbps"
+      - "   Tipo Radio: {{ wifi_info.radioType | default('N/A') }}"
+      - ""
+      - "🔐 SEGURIDAD:"
+      - "   Auth: {{ wifi_info.authentication | default('N/A') }}"
+      - "   Cifrado: {{ wifi_info.cipher | default('N/A') }}"
+
+- name: Mostrar configuración de red
+  debug:
+    msg:
+      - "=========================================="
+      - "     🌐 CONFIGURACIÓN DE RED"
+      - "=========================================="
+      - "   IP: {{ network_config.ip | default('N/A') }}"
+      - "   Gateway: {{ network_config.gateway | default('N/A') }}"
+      - "   DNS: {{ network_config.dns | default('N/A') }}"
+      - "   MAC: {{ network_config.macAddress | default('N/A') }}"
+
+- name: Mostrar test de conectividad
+  debug:
+    msg:
+      - "=========================================="
+      - "     🌍 TEST DE CONECTIVIDAD"
+      - "=========================================="
+      - "{{ '✅' if connectivity.internetAccess | default(false) else '❌' }} Internet: {{ 'Disponible' if connectivity.internetAccess | default(false) else 'Sin acceso' }}"
+
+- name: Mostrar detalles de conectividad
+  debug:
+    msg: "{{ '✅' if item.success else '❌' }} {{ item.name }}: {{ item.latency_ms ~ 'ms' if item.success else 'TIMEOUT' }}"
+  loop: "{{ connectivity.results | default([]) }}"
+
+- name: Mostrar redes disponibles
+  debug:
+    msg:
+      - "=========================================="
+      - "     📡 REDES WI-FI DISPONIBLES ({{ available_networks.count | default(0) }})"
+      - "=========================================="
+
+- name: Listar top 5 redes
+  debug:
+    msg: "{{ '📶' if item.ssid == wifi_info.ssid else '📡' }} {{ item.ssid | default('[Oculta]') }} - Canal {{ item.channel }} - {{ item.signal }}%"
+  loop: "{{ (available_networks.networks | default([]))[:5] }}"
+  when: available_networks.networks | default([]) | length > 0
+
+- name: Set wifi_analysis_facts
+  set_fact:
+    wifi_analysis:
+      connected: "{{ wifi_info.connected | default(false) }}"
+      ssid: "{{ wifi_info.ssid | default('') }}"
+      signal: "{{ wifi_info.signal | default(0) }}"
+      signal_quality: "{{ wifi_info.signalQuality | default('N/A') }}"
+      band: "{{ wifi_info.band | default('N/A') }}"
+      channel: "{{ wifi_info.channel | default(0) }}"
+      ip: "{{ network_config.ip | default('N/A') }}"
+      internet_access: "{{ connectivity.internetAccess | default(false) }}"
+      networks_count: "{{ available_networks.count | default(0) }}"

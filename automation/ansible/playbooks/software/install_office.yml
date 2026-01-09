@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Instalar Office 365
+# ============================================================================
+# Instalación silenciosa de Office 365
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/software/install_office.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Instalar Office 365
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar instalación de Office
+      include_role:
+        name: software
+        tasks_from: install_office.yml

@@ -1,0 +1,58 @@
+---
+# ============================================================================
+# Role: hardware - Task: configure
+# Tareas de configuración inicial del equipo
+# ============================================================================
+
+- name: Crear carpeta temporal
+  ansible.windows.win_file:
+    path: "{{ temp_folder | default('C:\\Temp') }}"
+    state: directory
+  register: temp_folder_result
+
+- name: Crear carpeta de logs
+  ansible.windows.win_file:
+    path: "{{ logs_folder | default('C:\\Temp\\Logs') }}"
+    state: directory
+
+- name: Desactivar hibernación
+  ansible.windows.win_shell: |
+    powercfg /h off
+    Write-Output "Hibernacion desactivada"
+  register: hibernate_result
+  changed_when: "'desactivada' in hibernate_result.stdout"
+  ignore_errors: true
+
+- name: Configurar política de energía (High Performance)
+  ansible.windows.win_shell: |
+    $highPerf = powercfg /list | Select-String "Alto rendimiento|High performance"
+    if ($highPerf) {
+      $guid = ($highPerf -split '\s+')[3]
+      powercfg /setactive $guid
+      Write-Output "Plan de energia configurado: Alto rendimiento"
+    } else {
+      Write-Output "Plan Alto rendimiento no encontrado"
+    }
+  register: power_result
+  changed_when: "'configurado' in power_result.stdout"
+  ignore_errors: true
+
+- name: Verificar Dell Command Update instalado
+  include_tasks: "{{ role_path }}/../common/tasks/check_dell_command_update.yml"
+  ignore_errors: true
+
+- name: Verificar estado de BitLocker
+  include_tasks: "{{ role_path }}/../common/tasks/check_bitlocker_status.yml"
+  ignore_errors: true
+
+- name: Resumen de configuración
+  debug:
+    msg:
+      - "=========================================="
+      - "       CONFIGURACIÓN COMPLETADA"
+      - "=========================================="
+      - "Carpeta temporal: {{ temp_folder_result.changed | ternary('Creada', 'Ya existía') }}"
+      - "Hibernación: {{ hibernate_result.stdout | default('N/A') }}"
+      - "Plan de energía: {{ power_result.stdout | default('N/A') }}"
+      - "Dell Command Update: {{ dell_command_installed | default('No verificado') }}"
+      - "BitLocker: {{ bitlocker_status.enabled | default('No verificado') }}"

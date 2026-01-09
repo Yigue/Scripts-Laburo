@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# Role: hardware - Task: reboot
+# Reinicia el equipo de forma controlada
+# ============================================================================
+
+- name: Confirmar reinicio
+  debug:
+    msg: "Iniciando reinicio del equipo {{ inventory_hostname }}"
+
+- name: Reiniciar equipo
+  ansible.windows.win_reboot:
+    reboot_timeout: "{{ reboot_timeout | default(600) }}"
+    post_reboot_delay: "{{ reboot_delay | default(30) }}"
+    msg: "Reinicio iniciado por IT-Ops CLI"
+    test_command: whoami
+  register: reboot_result
+
+- name: Mostrar resultado del reinicio
+  debug:
+    msg: 
+      - "Reinicio completado exitosamente"
+      - "Tiempo transcurrido: {{ reboot_result.elapsed }} segundos"

@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# Playbook: Test de Velocidad de Internet
+# ============================================================================
+# Ejecuta un test de velocidad usando PowerShell puro
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/network/speedtest.yml \
+#     --extra-vars "target_host=NB001234"
+#
+# Métricas:
+#   - Velocidad de descarga (Mbps)
+#   - Latencia promedio (ms)
+#   - Jitter (ms)
+# ============================================================================
+
+- name: Test de Velocidad de Internet
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar test de velocidad
+      include_role:
+        name: network
+        tasks_from: speedtest.yml

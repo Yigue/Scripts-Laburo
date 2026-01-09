@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# Playbook: Gestionar Aplicaciones
+# ============================================================================
+# Lista, busca y gestiona aplicaciones instaladas
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/software/manage_apps.yml \
+#     --extra-vars "target_host=HOSTNAME"
+#
+# Para buscar:
+#   ansible-playbook -i inventory/hosts.ini playbooks/software/manage_apps.yml \
+#     --extra-vars "target_host=HOSTNAME search_term=Chrome"
+# ============================================================================
+
+- name: Gestionar Aplicaciones
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar gestión de aplicaciones
+      include_role:
+        name: software
+        tasks_from: manage_apps.yml

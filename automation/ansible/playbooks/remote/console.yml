@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# Playbook: Consola Remota
+# ============================================================================
+# Proporciona información del equipo y ejecuta comandos personalizados
+#
+# Uso básico:
+#   ansible-playbook -i inventory/hosts.ini playbooks/remote/console.yml \
+#     --extra-vars "target_host=HOSTNAME"
+#
+# Para ejecutar un comando:
+#   ansible-playbook -i inventory/hosts.ini playbooks/remote/console.yml \
+#     --extra-vars "target_host=HOSTNAME custom_command='Get-Process | Select -First 10'"
+# ============================================================================
+
+- name: Consola Remota
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar consola remota
+      include_role:
+        name: remote
+        tasks_from: console.yml

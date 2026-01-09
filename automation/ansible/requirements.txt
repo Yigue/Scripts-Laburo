@@ -1,0 +1,20 @@
+# ============================================================================
+# IT-Ops CLI - Dependencias Python
+# ============================================================================
+
+# UI Interactiva
+questionary>=2.0.0
+rich>=13.0.0
+
+# Ansible Core
+ansible-core>=2.15.0
+
+# WinRM para conexión a Windows
+pywinrm>=0.4.3
+
+# Dependencias adicionales para WinRM
+requests-ntlm>=1.1.0
+requests-kerberos>=0.14.0
+
+# Utilidades
+python-dotenv>=1.0.0

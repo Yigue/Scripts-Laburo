@@ -1,0 +1,141 @@
+---
+# ============================================================================
+# Role: admin - Task: get_bitlocker_key
+# Obtener clave de recuperación BitLocker desde Active Directory
+# ============================================================================
+# NOTA: Requiere permisos para leer atributo msFVE-RecoveryPassword en AD
+# Las claves se almacenan como objetos child del objeto computer
+# ============================================================================
+
+- name: Obtener clave de recuperación BitLocker desde AD
+  ansible.windows.win_shell: |
+    try {
+      Import-Module ActiveDirectory -ErrorAction Stop
+      
+      # Buscar el equipo en AD
+      $computer = Get-ADComputer -Identity "{{ target_host }}" -ErrorAction Stop
+      
+      # Buscar objetos de recuperación BitLocker asociados al equipo
+      $bitlockerObjects = Get-ADObject -Filter 'objectClass -eq "msFVE-RecoveryInformation"' `
+        -SearchBase $computer.DistinguishedName `
+        -Properties msFVE-RecoveryPassword, msFVE-RecoveryGuid, whenCreated `
+        -ErrorAction SilentlyContinue
+      
+      if ($bitlockerObjects) {
+        $keys = @()
+        foreach ($obj in $bitlockerObjects) {
+          $keys += @{
+            recoveryPassword = $obj.'msFVE-RecoveryPassword'
+            recoveryGuid = $obj.'msFVE-RecoveryGuid'
+            createdDate = $obj.whenCreated.ToString("dd/MM/yyyy HH:mm:ss")
+          }
+        }
+        
+        @{
+          found = $true
+          computerName = $computer.Name
+          keysCount = $keys.Count
+          keys = $keys
+        } | ConvertTo-Json -Depth 3
+      } else {
+        @{
+          found = $false
+          computerName = $computer.Name
+          error = "No se encontraron claves de recuperación BitLocker en AD"
+        } | ConvertTo-Json
+      }
+    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+      @{ found = $false; error = "Equipo '{{ target_host }}' no encontrado en AD" } | ConvertTo-Json
+    } catch {
+      @{ found = $false; error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: bitlocker_result_raw
+  changed_when: false
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Parsear resultado BitLocker
+  set_fact:
+    bitlocker_result: "{{ bitlocker_result_raw.stdout | from_json }}"
+
+- name: Mostrar claves de recuperación BitLocker
+  debug:
+    msg:
+      - "=========================================="
+      - "  BITLOCKER - CLAVES DE RECUPERACIÓN (AD)"
+      - "=========================================="
+      - "Equipo: {{ bitlocker_result.computerName | default(target_host) }}"
+      - "Claves encontradas: {{ bitlocker_result.keysCount | default(0) }}"
+      - "=========================================="
+  when: bitlocker_result.found | default(false)
+
+- name: Mostrar cada clave de recuperación
+  debug:
+    msg:
+      - "---"
+      - "🔑 Recovery Password: {{ item.recoveryPassword }}"
+      - "   GUID: {{ item.recoveryGuid }}"
+      - "   Fecha: {{ item.createdDate }}"
+  loop: "{{ bitlocker_result.keys | default([]) }}"
+  when: bitlocker_result.found | default(false)
+
+- name: Mostrar error si no se encontraron claves
+  debug:
+    msg:
+      - "=========================================="
+      - "  BITLOCKER - SIN CLAVES ENCONTRADAS"
+      - "=========================================="
+      - "Equipo: {{ target_host }}"
+      - "Error: {{ bitlocker_result.error | default('Desconocido') }}"
+      - ""
+      - "Posibles causas:"
+      - "  • BitLocker no está habilitado en el equipo"
+      - "  • Las claves no están respaldadas en AD"
+      - "  • Sin permisos para leer msFVE-RecoveryPassword"
+      - "  • El equipo no está en el dominio"
+  when: not (bitlocker_result.found | default(false))
+
+- name: Alternativa: Obtener BitLocker directamente del equipo
+  ansible.windows.win_shell: |
+    try {
+      $volumes = Get-BitLockerVolume -ErrorAction Stop
+      
+      $results = @()
+      foreach ($vol in $volumes) {
+        foreach ($protector in $vol.KeyProtector) {
+          if ($protector.KeyProtectorType -eq "RecoveryPassword") {
+            $results += @{
+              volume = $vol.MountPoint
+              recoveryPassword = $protector.RecoveryPassword
+              protectorId = $protector.KeyProtectorId
+            }
+          }
+        }
+      }
+      
+      if ($results.Count -gt 0) {
+        @{
+          found = $true
+          source = "Local"
+          keys = $results
+        } | ConvertTo-Json -Depth 3
+      } else {
+        @{ found = $false; error = "No hay protectores de recuperación configurados" } | ConvertTo-Json
+      }
+    } catch {
+      @{ found = $false; error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: bitlocker_local_raw
+  when: not (bitlocker_result.found | default(false))
+  ignore_errors: true
+
+- name: Mostrar claves locales si están disponibles
+  debug:
+    msg:
+      - "=========================================="
+      - "  BITLOCKER - CLAVES LOCALES"
+      - "=========================================="
+      - "{{ bitlocker_local_raw.stdout | default('No se pudieron obtener claves locales') }}"
+  when: 
+    - not (bitlocker_result.found | default(false))
+    - bitlocker_local_raw is defined
+    - bitlocker_local_raw.stdout is defined

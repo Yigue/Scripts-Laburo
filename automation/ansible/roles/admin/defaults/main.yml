@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# Variables por defecto para el role admin
+# ============================================================================
+
+# Domain Controller (configurar según tu ambiente)
+domain_controller: "dc01.dominio.local"
+domain_name: "dominio.local"
+
+# OUs para búsquedas
+laps_ou: "OU=Computadoras,DC=dominio,DC=local"
+bitlocker_ou: "OU=Computadoras,DC=dominio,DC=local"
+
+# Timeout para operaciones AD
+ad_timeout: 30

@@ -1,0 +1,145 @@
+---
+# ============================================================================
+# Role: hardware - Task: disk_smart
+# Obtener información SMART de discos duros/SSD
+# ============================================================================
+
+- name: Obtener información de salud de discos
+  ansible.windows.win_shell: |
+    $disks = @()
+    
+    # Obtener información básica de discos físicos
+    $physicalDisks = Get-PhysicalDisk -ErrorAction SilentlyContinue
+    
+    foreach ($disk in $physicalDisks) {
+      $smartData = @{
+        friendlyName = $disk.FriendlyName
+        mediaType = $disk.MediaType
+        busType = $disk.BusType
+        healthStatus = $disk.HealthStatus
+        operationalStatus = $disk.OperationalStatus
+        size_GB = [math]::Round($disk.Size / 1GB, 2)
+        model = $disk.Model
+        serialNumber = $disk.SerialNumber
+        firmwareVersion = $disk.FirmwareVersion
+      }
+      
+      # Intentar obtener contadores de confiabilidad
+      try {
+        $reliability = Get-StorageReliabilityCounter -PhysicalDisk $disk -ErrorAction SilentlyContinue
+        
+        if ($reliability) {
+          $smartData.temperature_C = $reliability.Temperature
+          $smartData.powerOnHours = $reliability.PowerOnHours
+          $smartData.readErrors = $reliability.ReadErrorsTotal
+          $smartData.writeErrors = $reliability.WriteErrorsTotal
+          $smartData.readLatency_ms = $reliability.ReadLatencyMax
+          $smartData.writeLatency_ms = $reliability.WriteLatencyMax
+          $smartData.wear = $reliability.Wear
+        }
+      } catch {
+        $smartData.reliabilityError = $_.Exception.Message
+      }
+      
+      $disks += $smartData
+    }
+    
+    # Fallback a WMI si no hay PhysicalDisk
+    if ($disks.Count -eq 0) {
+      $wmiDisks = Get-WmiObject -Class Win32_DiskDrive -ErrorAction SilentlyContinue
+      
+      foreach ($disk in $wmiDisks) {
+        $smartData = @{
+          friendlyName = $disk.Caption
+          mediaType = "Unknown"
+          busType = $disk.InterfaceType
+          healthStatus = if ($disk.Status -eq "OK") { "Healthy" } else { $disk.Status }
+          operationalStatus = "OK"
+          size_GB = [math]::Round($disk.Size / 1GB, 2)
+          model = $disk.Model
+          serialNumber = $disk.SerialNumber
+          firmwareVersion = $disk.FirmwareRevision
+        }
+        $disks += $smartData
+      }
+    }
+    
+    @{
+      success = $true
+      diskCount = $disks.Count
+      disks = $disks
+    } | ConvertTo-Json -Depth 3
+  register: disk_smart_raw
+  changed_when: false
+
+- name: Parsear información SMART
+  set_fact:
+    disk_smart: "{{ disk_smart_raw.stdout | from_json }}"
+
+- name: Mostrar encabezado de reporte SMART
+  debug:
+    msg:
+      - "=========================================="
+      - "     REPORTE S.M.A.R.T. DE DISCOS"
+      - "=========================================="
+      - "Discos encontrados: {{ disk_smart.diskCount }}"
+      - "=========================================="
+  when: disk_smart.success | default(false)
+
+- name: Mostrar información de cada disco
+  debug:
+    msg:
+      - "---"
+      - "💾 Disco #{{ ansible_loop.index }}: {{ item.friendlyName | default(item.model) }}"
+      - "   Modelo: {{ item.model | default('N/A') }}"
+      - "   Tipo: {{ item.mediaType | default('N/A') }} ({{ item.busType | default('N/A') }})"
+      - "   Tamaño: {{ item.size_GB | default('N/A') }} GB"
+      - "   Serial: {{ item.serialNumber | default('N/A') }}"
+      - "   Firmware: {{ item.firmwareVersion | default('N/A') }}"
+      - ""
+      - "   📊 Estado de Salud:"
+      - "   {{ '✅' if item.healthStatus == 'Healthy' else '⚠️' }} Estado: {{ item.healthStatus | default('Unknown') }}"
+      - "   Operacional: {{ item.operationalStatus | default('Unknown') }}"
+      - "   {{ '🌡️ Temperatura: ' + (item.temperature_C | string) + '°C' if item.temperature_C is defined else '' }}"
+      - "   {{ '⏱️ Horas encendido: ' + (item.powerOnHours | string) if item.powerOnHours is defined else '' }}"
+      - "   {{ '📖 Errores lectura: ' + (item.readErrors | string) if item.readErrors is defined else '' }}"
+      - "   {{ '📝 Errores escritura: ' + (item.writeErrors | string) if item.writeErrors is defined else '' }}"
+      - "   {{ '👴 Desgaste: ' + (item.wear | string) + '%' if item.wear is defined else '' }}"
+  loop: "{{ disk_smart.disks | default([]) }}"
+  loop_control:
+    extended: yes
+  when: disk_smart.success | default(false)
+
+- name: Evaluar salud de discos
+  debug:
+    msg:
+      - "=========================================="
+      - "     EVALUACIÓN GENERAL"
+      - "=========================================="
+      - "{{ '✅ Todos los discos en buen estado' if (disk_smart.disks | selectattr('healthStatus', 'equalto', 'Healthy') | list | length) == (disk_smart.disks | length) else '⚠️ ATENCIÓN: Hay discos con problemas de salud' }}"
+  when: disk_smart.success | default(false)
+
+- name: Advertencias de temperatura
+  debug:
+    msg: "🔥 ADVERTENCIA: Disco '{{ item.friendlyName }}' tiene temperatura alta: {{ item.temperature_C }}°C"
+  loop: "{{ disk_smart.disks | default([]) }}"
+  when: 
+    - disk_smart.success | default(false)
+    - item.temperature_C is defined
+    - item.temperature_C | int > 50
+
+- name: Advertencias de errores
+  debug:
+    msg: "⚠️ ADVERTENCIA: Disco '{{ item.friendlyName }}' tiene errores de lectura/escritura"
+  loop: "{{ disk_smart.disks | default([]) }}"
+  when:
+    - disk_smart.success | default(false)
+    - (item.readErrors is defined and item.readErrors | int > 0) or 
+      (item.writeErrors is defined and item.writeErrors | int > 0)
+
+- name: Set disk_smart_facts
+  set_fact:
+    disk_smart_summary:
+      disk_count: "{{ disk_smart.diskCount }}"
+      all_healthy: "{{ (disk_smart.disks | selectattr('healthStatus', 'equalto', 'Healthy') | list | length) == (disk_smart.disks | length) }}"
+      disks: "{{ disk_smart.disks }}"

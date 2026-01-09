@@ -1,0 +1,104 @@
+---
+# ============================================================================
+# Role: admin - Task: unlock_user
+# Desbloquear usuario en Active Directory
+# ============================================================================
+# Requiere: Variable 'ad_username' con el nombre del usuario a desbloquear
+# Ejemplo: --extra-vars "ad_username=jperez"
+# ============================================================================
+
+- name: Verificar que se proporcionó el username
+  fail:
+    msg: "Debe proporcionar el nombre de usuario con --extra-vars 'ad_username=USUARIO'"
+  when: ad_username is not defined or ad_username == ""
+
+- name: Obtener información del usuario en AD
+  ansible.windows.win_shell: |
+    try {
+      Import-Module ActiveDirectory -ErrorAction Stop
+      
+      $user = Get-ADUser -Identity "{{ ad_username }}" -Properties LockedOut, Enabled, PasswordExpired, LastLogonDate, PasswordLastSet -ErrorAction Stop
+      
+      @{
+        found = $true
+        samAccountName = $user.SamAccountName
+        name = $user.Name
+        enabled = $user.Enabled
+        locked = $user.LockedOut
+        passwordExpired = $user.PasswordExpired
+        lastLogon = if ($user.LastLogonDate) { $user.LastLogonDate.ToString("dd/MM/yyyy HH:mm") } else { "Nunca" }
+        passwordLastSet = if ($user.PasswordLastSet) { $user.PasswordLastSet.ToString("dd/MM/yyyy HH:mm") } else { "Nunca" }
+      } | ConvertTo-Json
+    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+      @{ found = $false; error = "Usuario '{{ ad_username }}' no encontrado en AD" } | ConvertTo-Json
+    } catch {
+      @{ found = $false; error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: user_info_raw
+  changed_when: false
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Parsear información del usuario
+  set_fact:
+    user_info: "{{ user_info_raw.stdout | from_json }}"
+
+- name: Mostrar error si usuario no encontrado
+  fail:
+    msg: "{{ user_info.error }}"
+  when: not user_info.found | default(false)
+
+- name: Mostrar estado actual del usuario
+  debug:
+    msg:
+      - "=========================================="
+      - "     INFORMACIÓN DEL USUARIO"
+      - "=========================================="
+      - "Usuario: {{ user_info.samAccountName }}"
+      - "Nombre: {{ user_info.name }}"
+      - "Habilitado: {{ user_info.enabled }}"
+      - "Bloqueado: {{ user_info.locked }}"
+      - "Password expirado: {{ user_info.passwordExpired }}"
+      - "Último login: {{ user_info.lastLogon }}"
+      - "Password cambiado: {{ user_info.passwordLastSet }}"
+
+- name: Desbloquear usuario en AD
+  ansible.windows.win_shell: |
+    try {
+      Import-Module ActiveDirectory -ErrorAction Stop
+      Unlock-ADAccount -Identity "{{ ad_username }}" -ErrorAction Stop
+      Write-Output "Usuario '{{ ad_username }}' desbloqueado exitosamente"
+    } catch {
+      Write-Output "ERROR: $($_.Exception.Message)"
+    }
+  register: unlock_result
+  when: user_info.locked | default(false)
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Informar si el usuario no estaba bloqueado
+  debug:
+    msg: "El usuario '{{ ad_username }}' NO estaba bloqueado"
+  when: not (user_info.locked | default(false))
+
+- name: Verificar estado después del desbloqueo
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $user = Get-ADUser -Identity "{{ ad_username }}" -Properties LockedOut
+    if ($user.LockedOut) {
+      Write-Output "ADVERTENCIA: El usuario sigue bloqueado"
+    } else {
+      Write-Output "CONFIRMADO: El usuario está desbloqueado"
+    }
+  register: verify_result
+  when: user_info.locked | default(false)
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Resumen de operación
+  debug:
+    msg:
+      - "=========================================="
+      - "     DESBLOQUEO DE USUARIO - RESULTADO"
+      - "=========================================="
+      - "Usuario: {{ ad_username }}"
+      - "{{ unlock_result.stdout | default('No se requirió desbloqueo') }}"
+      - "{{ verify_result.stdout | default('') }}"
+      - "{{ 'ADVERTENCIA: Password expirado - El usuario debe cambiar su contraseña' if user_info.passwordExpired else '' }}"

@@ -1,0 +1,90 @@
+---
+# ============================================================================
+# Role: network - Task: network_repair
+# Reparación completa de red (flush DNS, reset IP, reiniciar adaptador)
+# ============================================================================
+
+- name: Limpiar caché DNS
+  ansible.windows.win_shell: |
+    ipconfig /flushdns
+    Write-Output "Cache DNS limpiado"
+  register: dns_flush
+
+- name: Liberar IP actual
+  ansible.windows.win_shell: |
+    ipconfig /release
+    Write-Output "IP liberada"
+  register: ip_release
+  ignore_errors: true
+
+- name: Renovar IP
+  ansible.windows.win_shell: |
+    ipconfig /renew
+    Write-Output "IP renovada"
+  register: ip_renew
+  ignore_errors: true
+
+- name: Resetear Winsock
+  ansible.windows.win_shell: |
+    netsh winsock reset catalog
+    Write-Output "Catalogo Winsock reseteado"
+  register: winsock_reset
+
+- name: Resetear stack IP
+  ansible.windows.win_shell: |
+    netsh int ip reset resetlog.txt
+    Write-Output "Stack IP reseteado"
+  register: ip_reset
+
+- name: Reiniciar adaptador Wi-Fi
+  ansible.windows.win_shell: |
+    $wifiAdapter = Get-NetAdapter | Where-Object { 
+      $_.Status -eq 'Up' -and 
+      ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*')
+    } | Select-Object -First 1
+    
+    if ($wifiAdapter) {
+      Write-Output "Reiniciando adaptador: $($wifiAdapter.Name)"
+      Disable-NetAdapter -Name $wifiAdapter.Name -Confirm:$false
+      Start-Sleep -Seconds 3
+      Enable-NetAdapter -Name $wifiAdapter.Name -Confirm:$false
+      Start-Sleep -Seconds 5
+      Write-Output "Adaptador Wi-Fi reiniciado"
+    } else {
+      Write-Output "No se encontro adaptador Wi-Fi activo"
+    }
+  register: wifi_restart
+  ignore_errors: true
+
+- name: Verificar conectividad post-reparación
+  ansible.windows.win_shell: |
+    Start-Sleep -Seconds 5
+    
+    $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
+      $_.InterfaceAlias -notlike '*vEthernet*' -and 
+      $_.IPAddress -notlike '169.254.*' 
+    } | Select-Object -First 1).IPAddress
+    
+    $ping = Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet -ErrorAction SilentlyContinue
+    
+    Write-Output "Nueva IP: $ip"
+    Write-Output "Conectividad a Internet: $(if ($ping) { 'OK' } else { 'FALLO' })"
+  register: post_check
+  changed_when: false
+
+- name: Resumen de reparación de red
+  debug:
+    msg:
+      - "=========================================="
+      - "    REPARACION DE RED - RESULTADO"
+      - "=========================================="
+      - "DNS Flush: {{ dns_flush.stdout | default('OK') }}"
+      - "IP Release: {{ ip_release.stdout | default('OK') }}"
+      - "IP Renew: {{ ip_renew.stdout | default('OK') }}"
+      - "Winsock Reset: {{ winsock_reset.stdout | default('OK') }}"
+      - "IP Stack Reset: {{ ip_reset.stdout | default('OK') }}"
+      - "Wi-Fi Restart: {{ wifi_restart.stdout | default('N/A') }}"
+      - "----------------------------------------"
+      - "{{ post_check.stdout_lines | default(['Sin verificación']) }}"
+      - "----------------------------------------"
+      - "NOTA: Puede requerir reinicio para aplicar cambios de Winsock/IP"

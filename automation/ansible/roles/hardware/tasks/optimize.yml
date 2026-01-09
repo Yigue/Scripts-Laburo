@@ -1,0 +1,80 @@
+---
+# ============================================================================
+# Role: hardware - Task: optimize
+# Optimización del sistema (limpieza de disco, etc.)
+# ============================================================================
+
+- name: Limpiar archivos temporales del sistema
+  ansible.windows.win_shell: |
+    # Limpiar carpetas temporales
+    $folders = @(
+      "$env:TEMP",
+      "C:\Windows\Temp",
+      "C:\Windows\Prefetch"
+    )
+    
+    $totalDeleted = 0
+    foreach ($folder in $folders) {
+      if (Test-Path $folder) {
+        $files = Get-ChildItem $folder -Recurse -ErrorAction SilentlyContinue
+        foreach ($file in $files) {
+          try {
+            Remove-Item $file.FullName -Force -Recurse -ErrorAction SilentlyContinue
+            $totalDeleted++
+          } catch {}
+        }
+      }
+    }
+    Write-Output "Archivos temporales eliminados: $totalDeleted"
+  register: temp_cleanup
+  changed_when: true
+
+- name: Limpiar caché de Windows Update
+  ansible.windows.win_shell: |
+    Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+    Remove-Item "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Service wuauserv -ErrorAction SilentlyContinue
+    Write-Output "Cache de Windows Update limpiado"
+  register: wu_cleanup
+  ignore_errors: true
+
+- name: Ejecutar limpieza de disco silenciosa
+  ansible.windows.win_shell: |
+    # Configurar cleanmgr para limpieza automática
+    $volumeCaches = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches"
+    foreach ($cache in $volumeCaches) {
+      Set-ItemProperty -Path $cache.PSPath -Name StateFlags0100 -Value 2 -Type DWord -ErrorAction SilentlyContinue
+    }
+    
+    # Ejecutar cleanmgr
+    Start-Process cleanmgr -ArgumentList "/sagerun:100" -Wait -NoNewWindow
+    Write-Output "Limpieza de disco completada"
+  register: disk_cleanup
+  ignore_errors: true
+
+- name: Optimizar disco (si es SSD, TRIM; si es HDD, desfragmentar)
+  ansible.windows.win_shell: |
+    $disk = Get-PhysicalDisk | Where-Object { $_.DeviceId -eq 0 }
+    
+    if ($disk.MediaType -eq "SSD") {
+      Optimize-Volume -DriveLetter C -ReTrim -Verbose
+      Write-Output "TRIM ejecutado en SSD"
+    } else {
+      Optimize-Volume -DriveLetter C -Defrag -Verbose
+      Write-Output "Desfragmentacion iniciada en HDD"
+    }
+  register: disk_optimize
+  ignore_errors: true
+  async: 600
+  poll: 30
+
+- name: Resumen de optimización
+  debug:
+    msg:
+      - "=========================================="
+      - "       OPTIMIZACIÓN COMPLETADA"
+      - "=========================================="
+      - "{{ temp_cleanup.stdout | default('Limpieza temp: N/A') }}"
+      - "{{ wu_cleanup.stdout | default('Cache WU: N/A') }}"
+      - "{{ disk_cleanup.stdout | default('Limpieza disco: N/A') }}"
+      - "{{ disk_optimize.stdout | default('Optimización disco: N/A') }}"

@@ -1,0 +1,22 @@
+---
+# ============================================================================
+# Playbook: Obtener Clave de Recuperación BitLocker
+# ============================================================================
+# Obtiene la clave de recuperación BitLocker (48 dígitos) desde AD
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/admin/get_bitlocker_key.yml \
+#     --extra-vars "target_host=NB001234"
+#
+# NOTA: Requiere permisos para leer msFVE-RecoveryPassword en AD
+# ============================================================================
+
+- name: Obtener Clave BitLocker Recovery
+  hosts: "{{ domain_controller | default('localhost') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar obtención de clave BitLocker
+      include_role:
+        name: admin
+        tasks_from: get_bitlocker_key.yml

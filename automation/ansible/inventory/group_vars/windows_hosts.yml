@@ -1,0 +1,88 @@
+---
+# ============================================================================
+# Variables Públicas para Windows Hosts
+# ============================================================================
+# Este archivo contiene variables NO SENSIBLES que pueden estar en git
+# Las credenciales y secrets van en windows_hosts_vault.yml (encriptado)
+# ============================================================================
+
+# ============================================================================
+# Active Directory & Domain (NUEVO)
+# ============================================================================
+# Domain Controller (FQDN o IP)
+domain_controller: "dc01.empresa.local"
+
+# Nombre del dominio
+domain_name: "empresa.local"
+
+# OU donde están las computadoras para búsqueda de LAPS
+laps_ou: "OU=Computadoras,DC=empresa,DC=local"
+
+# OU donde buscar claves de recuperación BitLocker
+bitlocker_ou: "OU=Computadoras,DC=empresa,DC=local"
+
+# Timeout para operaciones de AD (segundos)
+ad_timeout: 30
+
+# ============================================================================
+# Timeouts (en segundos)
+# ============================================================================
+connection_timeout: 30
+command_timeout: 120
+reboot_timeout: 600
+install_timeout: 1800
+
+# ============================================================================
+# Paths de Software (ajustar según infraestructura)
+# ============================================================================
+software_share: "\\\\fileserver\\software"
+office_installer_path: "{{ software_share }}\\Office365\\setup.exe"
+office_config_path: "{{ software_share }}\\Office365\\configuration.xml"
+
+# ============================================================================
+# Dell Command Update
+# ============================================================================
+dell_command_update_path: "C:\\Program Files\\Dell\\CommandUpdate\\dcu-cli.exe"
+dell_command_update_args: "/applyUpdates -reboot=disable"
+
+# ============================================================================
+# Configuración de Red
+# ============================================================================
+dns_servers:
+  - "10.10.10.1"
+  - "10.10.10.2"
+wcorp_script_path: "{{ software_share }}\\Scripts\\wcorp_fix.ps1"
+
+# Método de speedtest: 'powershell' (siempre disponible) o 'speedtest-cli' o 'iperf3'
+speedtest_method: "powershell"
+
+# ============================================================================
+# Impresoras Zebra
+# ============================================================================
+zebra_default_port: 9100
+zebra_calibration_command: "~JC"
+zebra_gap_calibration_command: "~JG"
+
+# ============================================================================
+# Directorios Temporales
+# ============================================================================
+temp_folder: "C:\\Temp"
+logs_folder: "C:\\Temp\\Logs"
+
+# ============================================================================
+# Activación de Windows
+# ============================================================================
+kms_server: "kms.empresa.local"
+kms_port: 1688
+
+# ============================================================================
+# OneDrive Reset
+# ============================================================================
+# Reiniciar OneDrive automáticamente después del reset
+reset_onedrive_restart: true
+
+# ============================================================================
+# Diagnóstico y Reportes
+# ============================================================================
+# Ubicación temporal para reportes de batería
+battery_report_path: "{{ temp_folder }}\\battery-report.xml"

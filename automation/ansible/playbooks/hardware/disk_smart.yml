@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# Playbook: Reporte S.M.A.R.T. de Discos
+# ============================================================================
+# Obtiene información de salud de discos duros y SSD
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/disk_smart.yml \
+#     --extra-vars "target_host=NB001234"
+#
+# Información mostrada:
+#   - Estado de salud (Healthy/Warning/Unhealthy)
+#   - Temperatura
+#   - Horas de uso
+#   - Errores de lectura/escritura
+#   - Desgaste (para SSD)
+# ============================================================================
+
+- name: Reporte S.M.A.R.T. de Discos
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar diagnóstico SMART de discos
+      include_role:
+        name: hardware
+        tasks_from: disk_smart.yml

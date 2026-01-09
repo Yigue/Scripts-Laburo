@@ -1,0 +1,28 @@
+---
+# Verificar estado de BitLocker
+- name: Verificar estado de BitLocker
+  ansible.windows.win_shell: |
+    $volume = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
+    if ($volume) {
+      @{
+        enabled = ($volume.ProtectionStatus -eq "On")
+        encryption_percentage = $volume.EncryptionPercentage
+        lock_status = $volume.LockStatus.ToString()
+        protection_status = $volume.ProtectionStatus.ToString()
+        volume_status = $volume.VolumeStatus.ToString()
+        key_protector = ($volume.KeyProtector | Select-Object -ExpandProperty KeyProtectorType) -join ", "
+      } | ConvertTo-Json
+    } else {
+      @{
+        enabled = $false
+        error = "No se pudo obtener información de BitLocker"
+      } | ConvertTo-Json
+    }
+  register: bitlocker_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Parsear resultado BitLocker
+  set_fact:
+    bitlocker_status: "{{ bitlocker_check.stdout | from_json }}"
+  when: bitlocker_check.stdout is defined

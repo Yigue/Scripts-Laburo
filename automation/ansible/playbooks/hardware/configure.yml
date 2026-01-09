@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Playbook: Configurar Equipo
+# ============================================================================
+# Ejecuta tareas de configuración inicial del equipo
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/configure.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
+- name: Configurar equipo
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  
+  tasks:
+    - name: Ejecutar tareas de configuración
+      include_role:
+        name: hardware
+        tasks_from: configure.yml

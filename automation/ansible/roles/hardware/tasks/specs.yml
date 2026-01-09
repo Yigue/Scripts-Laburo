@@ -1,0 +1,89 @@
+---
+# ============================================================================
+# Role: hardware - Task: specs
+# Obtiene especificaciones completas del sistema
+# ============================================================================
+
+- name: Obtener información del sistema
+  ansible.windows.win_shell: |
+    # Recolectar información del sistema
+    $systemInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+    $biosInfo = Get-CimInstance -ClassName Win32_BIOS -ErrorAction SilentlyContinue
+    $processorInfo = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue
+    $osInfo = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $serialNumber = (Get-WmiObject -Class Win32_BIOS -ErrorAction SilentlyContinue).SerialNumber
+    
+    if (!$serialNumber) { $serialNumber = "No disponible" }
+    
+    # Obtener parche de actualización
+    $path = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages"
+    $pkgs = Get-ChildItem $path -ErrorAction SilentlyContinue | 
+            Where-Object { $_.Name -match "Package_for_RollupFix" } | 
+            Sort-Object Name -Descending | 
+            Select-Object -First 1
+    
+    # Disco
+    $diskInfo = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue | 
+                Select-Object Model, @{Name="SizeGB";Expression={[math]::round($_.Size / 1GB, 2)}}
+    $logicalDisks = Get-CimInstance -ClassName Win32_LogicalDisk -ErrorAction SilentlyContinue | 
+                    Where-Object { $_.DriveType -eq 3 }
+    
+    # Red
+    $networkAdapters = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | 
+                       Where-Object { $_.IPEnabled -eq $true }
+    $wifiAdapter = $networkAdapters | Where-Object { $_.Description -match "Wi-Fi|Wireless" }
+    $wifiIP = if ($wifiAdapter -and $wifiAdapter.IPAddress) { $wifiAdapter.IPAddress -join ', ' } else { "No conectado" }
+    $ethernetAdapter = $networkAdapters | Where-Object { $_.Description -notmatch "Wi-Fi|Wireless" }
+    $ethernetIP = if ($ethernetAdapter -and $ethernetAdapter.IPAddress) { $ethernetAdapter.IPAddress -join ', ' } else { "No conectado" }
+    
+    # Version Windows
+    $displayVersion = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion -ErrorAction SilentlyContinue
+    $buildNumber = if ($osInfo) { $osInfo.BuildNumber } else { "N/A" }
+    $versionWinver = if ($pkgs) { $pkgs.PSChildName -replace ".*~", "" } else { "N/A" }
+    
+    # Fecha instalación
+    $formattedInstallDate = "N/A"
+    if ($osInfo -and $osInfo.InstallDate) {
+        $formattedInstallDate = [Management.ManagementDateTimeConverter]::ToDateTime($osInfo.InstallDate).ToString("dd/MM/yyyy HH:mm:ss")
+    }
+    
+    # Espacio en disco
+    $diskC = $logicalDisks | Where-Object { $_.DeviceID -eq "C:" }
+    $freeSpaceGB = if ($diskC) { [math]::round($diskC.FreeSpace / 1GB, 2) } else { "N/A" }
+    $totalSpaceGB = if ($diskC) { [math]::round($diskC.Size / 1GB, 2) } else { "N/A" }
+    
+    # Output formateado
+    Write-Output "========================================================="
+    Write-Output "             ESPECIFICACIONES DEL SISTEMA"
+    Write-Output "========================================================="
+    Write-Output "Nombre del equipo: $($systemInfo.Name)"
+    Write-Output "Modelo del equipo: $($systemInfo.Model)"
+    Write-Output "Fabricante: $($systemInfo.Manufacturer)"
+    Write-Output "Numero de Serie: $serialNumber"
+    Write-Output "Procesador: $($processorInfo.Name)"
+    Write-Output "RAM (GB): $([math]::round($systemInfo.TotalPhysicalMemory / 1GB, 2))"
+    Write-Output "Version BIOS: $($biosInfo.SMBIOSBIOSVersion)"
+    Write-Output "Sistema Operativo: $($osInfo.Caption)"
+    Write-Output "Version Windows: $displayVersion (Build $buildNumber)"
+    Write-Output "Parche: $versionWinver"
+    Write-Output "Fecha Instalacion: $formattedInstallDate"
+    Write-Output "IP Wi-Fi: $wifiIP"
+    Write-Output "IP Ethernet: $ethernetIP"
+    Write-Output "========================================================="
+    Write-Output "                 INFORMACION DEL DISCO"
+    Write-Output "========================================================="
+    Write-Output "Disco C Total: $totalSpaceGB GB"
+    Write-Output "Disco C Libre: $freeSpaceGB GB"
+    
+    if ($diskInfo) {
+        $diskInfo | ForEach-Object {
+            Write-Output "Modelo Disco: $($_.Model)"
+            Write-Output "Tamano Disco: $($_.SizeGB) GB"
+        }
+    }
+  register: system_specs
+  changed_when: false
+
+- name: Mostrar especificaciones
+  debug:
+    msg: "{{ system_specs.stdout_lines }}"
