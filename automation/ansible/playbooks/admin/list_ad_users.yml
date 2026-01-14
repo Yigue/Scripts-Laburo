@@ -10,3 +10,8 @@
       include_role:
         name: admin
         tasks_from: list_ad_users.yml
+
+    - name: Registrar auditoría
+      include_role:
+        name: common
+        tasks_from: log_action.yml
