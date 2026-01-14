@@ -1,0 +1,56 @@
+---
+# ============================================================================
+# Role: software - Task: list_apps_detailed
+# Listar aplicaciones diferenciando MSI de no-MSI
+# ============================================================================
+
+- name: Obtener lista detallada de aplicaciones
+  ansible.windows.win_shell: |
+    $apps = @()
+    
+    # MSI via WMI (Win32_Product)
+    $msi_apps = Get-WmiObject -Class Win32_Product | ForEach-Object {
+        [PSCustomObject]@{
+            Name = $_.Name
+            Version = $_.Version
+            Vendor = $_.Vendor
+            Type = "MSI"
+            InstallDate = $_.InstallDate
+        }
+    }
+    $apps += $msi_apps
+    
+    # Registro (64-bit y 32-bit)
+    $reg_paths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    
+    foreach ($path in $reg_paths) {
+        $reg_apps = Get-ItemProperty $path -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -and $_.UninstallString } | ForEach-Object {
+            [PSCustomObject]@{
+                Name = $_.DisplayName
+                Version = $_.DisplayVersion
+                Vendor = $_.Publisher
+                Type = "Registry"
+                InstallDate = $_.InstallDate
+            }
+        }
+        $apps += $reg_apps
+    }
+    
+    $apps | Sort-Object Name -Unique | ConvertTo-Json
+  register: apps_detailed_raw
+  changed_when: false
+
+- name: Parsear lista de aplicaciones
+  set_fact:
+    apps_detailed: "{{ apps_detailed_raw.stdout | from_json }}"
+
+- name: Mostrar lista de aplicaciones
+  debug:
+    msg:
+      - "=========================================="
+     - "     APLICACIONES INSTALADAS (Detalle)"
+      - "=========================================="
+      - "{{ apps_detailed | list }}"

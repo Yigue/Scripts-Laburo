@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Info de Cliente en WLC
+# ============================================================================
+- name: Info de Cliente
+  hosts: wlc_group
+  gather_facts: no
+  tasks:
+    - name: Consultar detalle de cliente
+      include_role:
+        name: wlc
+        tasks_from: get_client_info.yml

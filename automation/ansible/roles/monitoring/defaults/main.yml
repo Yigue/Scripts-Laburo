@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# Variables por defecto para el role monitoring
+# ============================================================================
+
+# Umbrales de alerta
+disk_threshold_percent: 10
+mem_threshold_percent: 90
+
+# Servicios críticos a monitorear
+critical_services:
+  - LanmanServer
+  - WinRM
+  - Spooler
+  - CcmExec

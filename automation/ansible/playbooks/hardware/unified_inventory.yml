@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Inventario Unificado
+# ============================================================================
+- name: Inventario Unificado
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar reporte unificado
+      include_role:
+        name: hardware
+        tasks_from: unified_inventory.yml

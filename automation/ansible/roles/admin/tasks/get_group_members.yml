@@ -1,0 +1,31 @@
+---
+# ============================================================================
+# Role: admin - Task: get_group_members (OPTIMIZADO)
+# Obtener membresías de grupos usando módulos nativos
+# ============================================================================
+
+- name: Verificar que se proporcionó el grupo
+  fail:
+    msg: "Debe proporcionar el nombre del grupo con --extra-vars 'ad_group_name=GRUPO'"
+  when: ad_group_name is not defined or ad_group_name == ""
+
+- name: Consultar miembros del grupo usando microsoft.ad.group_info
+  microsoft.ad.group_info:
+    identity: "{{ ad_group_name }}"
+    properties:
+      - members
+  register: ad_group_raw
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Mostrar error si el grupo no existe
+  fail:
+    msg: "Grupo '{{ ad_group_name }}' no encontrado"
+  when: ad_group_raw.groups | length == 0
+
+- name: Mostrar lista de miembros del grupo
+  debug:
+    msg:
+      - "=========================================="
+      - "     MIEMBROS DEL GRUPO: {{ ad_group_name }} (Native)"
+      - "=========================================="
+      - "{{ ad_group_raw.groups[0].members | default([]) }}"

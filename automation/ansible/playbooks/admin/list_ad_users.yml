@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Listar Usuarios en AD
+# ============================================================================
+- name: Listar Usuarios en AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar usuarios
+      include_role:
+        name: admin
+        tasks_from: list_ad_users.yml

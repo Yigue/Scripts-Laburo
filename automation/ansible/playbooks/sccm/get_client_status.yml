@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Estado Cliente SCCM
+# ============================================================================
+- name: Estado Cliente SCCM
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar cliente SCCM
+      include_role:
+        name: sccm
+        tasks_from: get_client_status.yml

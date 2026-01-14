@@ -1,0 +1,19 @@
+---
+# ============================================================================
+# Role: wlc - Task: show_ap_list
+# Ver todos los APs (filtro CIT)
+# ============================================================================
+
+- name: Obtener resumen de APs en WLC
+  cisco.ios.ios_command:
+    commands:
+      - "show ap summary | include {{ wlc_site_filter }}"
+  register: ap_list_raw
+
+- name: Mostrar lista de APs
+  debug:
+    msg:
+      - "=========================================="
+     - "     LISTADO DE APs (Filtro: {{ wlc_site_filter }})"
+      - "=========================================="
+      - "{{ ap_list_raw.stdout_lines[0] }}"

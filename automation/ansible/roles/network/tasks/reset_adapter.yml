@@ -1,0 +1,20 @@
+---
+# ============================================================================
+# Role: network - Task: reset_adapter
+# Restablecer adaptador de red Wi-Fi
+# ============================================================================
+
+- name: Reiniciar adaptador Wi-Fi
+  ansible.windows.win_shell: |
+    $adapter = Get-NetAdapter | Where-Object { $_.Name -like "*Wi-Fi*" -or $_.InterfaceDescription -like "*Wireless*" }
+    if ($adapter) {
+        Restart-NetAdapter -Name $adapter.Name -Confirm:$false
+        Write-Output "Adaptador $($adapter.Name) reiniciado correctamente"
+    } else {
+        Write-Output "No se encontró adaptador Wi-Fi"
+    }
+  register: network_reset_result
+
+- name: Mostrar resultado de reinicio de adaptador
+  debug:
+    msg: "{{ network_reset_result.stdout }}"

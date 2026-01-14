@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Instalar desde Soporte
+# ============================================================================
+- name: Instalar desde Soporte
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar instalador remoto
+      include_role:
+        name: software
+        tasks_from: install_from_support.yml

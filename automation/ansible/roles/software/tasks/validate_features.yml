@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# Role: software - Task: validate_features
+# Validación de features y roles de Windows
+# ============================================================================
+
+- name: Listar features de Windows habilitadas
+  ansible.windows.win_shell: |
+    Get-WindowsOptionalFeature -Online | Where-Object { $_.State -eq "Enabled" } | Select-Object FeatureName, State | ConvertTo-Json
+  register: win_features_raw
+  changed_when: false
+
+- name: Parsear features de Windows
+  set_fact:
+    win_features: "{{ win_features_raw.stdout | from_json }}"
+
+- name: Mostrar features habilitadas
+  debug:
+    msg:
+      - "=========================================="
+      - "     WINDOWS FEATURES HABILITADAS"
+      - "=========================================="
+      - "{{ win_features | list }}"

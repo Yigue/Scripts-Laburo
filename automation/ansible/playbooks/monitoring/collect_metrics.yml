@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Recolectar Métricas Monitoreo
+# ============================================================================
+- name: Recolectar Métricas Monitoreo
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar recolección de métricas
+      include_role:
+        name: monitoring
+        tasks_from: collect_metrics.yml

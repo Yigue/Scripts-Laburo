@@ -1,0 +1,40 @@
+---
+# ============================================================================
+# Role: sccm - Task: get_collections
+# Obtener colecciones a las que pertenece un equipo
+# ============================================================================
+# Variables:
+#   sccm_device_name: Nombre del equipo (opcional, default inventory_hostname)
+# ============================================================================
+
+- name: Consultar colecciones del equipo en SCCM
+  ansible.windows.win_shell: |
+    $name = if ("{{ sccm_device_name | default('') }}") { "{{ sccm_device_name }}" } else { $env:COMPUTERNAME }
+    $namespace = "root\sms\site_{{ sccm_site_code }}"
+    
+    try {
+        $res = Get-CimInstance -ComputerName "{{ sccm_server }}" -Namespace $namespace -Query "SELECT ResourceID FROM SMS_R_System WHERE Name = '$name'" -ErrorAction Stop
+        if ($res) {
+            $rid = $res.ResourceID
+            $collections = Get-CimInstance -ComputerName "{{ sccm_server }}" -Namespace $namespace -Query "SELECT CollectionID FROM SMS_FullCollectionMembership WHERE ResourceID = $rid"
+            $collections | ForEach-Object { $_.CollectionID } | ConvertTo-Json
+        } else {
+            @{ error = "Equipo '$name' no encontrado en SCCM" } | ConvertTo-Json
+        }
+    } catch {
+        @{ error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: sccm_collections_raw
+  changed_when: false
+
+- name: Parsear colecciones SCCM
+  set_fact:
+    sccm_collections: "{{ sccm_collections_raw.stdout | from_json }}"
+
+- name: Mostrar colecciones SCCM
+  debug:
+    msg:
+      - "=========================================="
+      - "     COLECCIONES SCCM DEL EQUIPO: {{ sccm_device_name | default(inventory_hostname) }}"
+      - "=========================================="
+      - "{{ sccm_collections | list }}"

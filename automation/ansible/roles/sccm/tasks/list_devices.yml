@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# Role: sccm - Task: list_devices (OPTIMIZADO)
+# Listar dispositivos SCCM con queries eficientes
+# ============================================================================
+
+- name: Consultar dispositivos en SCCM (Query optimizada)
+  ansible.windows.win_shell: |
+    $namespace = "root\sms\site_{{ sccm_site_code }}"
+    # Query directa para evitar procesar miles de objetos en memoria local
+    Get-CimInstance -ComputerName "{{ sccm_server }}" -Namespace $namespace -Query "SELECT Name, Client, ClientVersion, LastLogonTimestamp FROM SMS_R_System WHERE Client = 1" | Select-Object Name, ClientVersion, LastLogonTimestamp | ConvertTo-Json
+  register: sccm_devices_raw
+  changed_when: false
+
+- name: Parsear dispositivos SCCM
+  set_fact:
+    sccm_devices: "{{ sccm_devices_raw.stdout | from_json }}"
+
+- name: Mostrar dispositivos SCCM
+  debug:
+    msg:
+      - "=========================================="
+      - "     DISPOSITIVOS SCCM (Optimizado)"
+      - "=========================================="
+      - "{{ sccm_devices | list }}"

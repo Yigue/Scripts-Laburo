@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# Role: admin - Task: validate_attributes
+# Validación de atributos clave en objetos de AD
+# ============================================================================
+# Variables:
+#   required_attributes: Lista de atributos a validar (opcional)
+# ============================================================================
+
+- name: Validar atributos en AD
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $attrs = if ("{{ required_attributes | default('') }}") { "{{ required_attributes }}".Split(",") } else { @("mail", "Department", "Description") }
+    
+    $users = Get-ADUser -Filter * -Properties $attrs
+    
+    $invalid_users = $users | ForEach-Object {
+        $missing = @()
+        foreach ($attr in $attrs) {
+            if (-not $_.$attr) { $missing += $attr }
+        }
+        
+        if ($missing.Count -gt 0) {
+            [PSCustomObject]@{
+                SamAccountName = $_.SamAccountName
+                Name = $_.Name
+                MissingAttributes = $missing -join ", "
+            }
+        }
+    }
+    
+    $invalid_users | ConvertTo-Json
+  register: ad_validation_raw
+  changed_when: false
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Parsear validación de AD
+  set_fact:
+    ad_validation: "{{ ad_validation_raw.stdout | from_json }}"
+
+- name: Mostrar reporte de validación
+  debug:
+    msg:
+      - "=========================================="
+      - "     REPORTE DE ATRIBUTOS FALTANTES EN AD"
+      - "=========================================="
+      - "{{ ad_validation | list }}"

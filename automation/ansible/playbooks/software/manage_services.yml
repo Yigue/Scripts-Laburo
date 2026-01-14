@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Gestionar Servicios Windows
+# ============================================================================
+- name: Gestionar Servicios Windows
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar gestión de servicio
+      include_role:
+        name: software
+        tasks_from: manage_services.yml

@@ -1,0 +1,13 @@
+---
+# ============================================================================
+# Role: sccm - Task: force_gpupdate
+# Forzar gpupdate remoto
+# ============================================================================
+
+- name: Ejecutar gpupdate /force
+  ansible.windows.win_shell: gpupdate /force
+  register: gpupdate_result
+
+- name: Mostrar resultado de gpupdate
+  debug:
+    msg: "{{ gpupdate_result.stdout_lines }}"

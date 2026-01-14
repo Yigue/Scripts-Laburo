@@ -1,0 +1,35 @@
+---
+# ============================================================================
+# Role: admin - Task: export_ad_report
+# Exportación de información de AD a JSON/CSV
+# ============================================================================
+# Variables:
+#   export_format: formato de exportación (json/csv)
+#   export_path: ruta de destino en el host remoto
+#   ad_data: datos a exportar (provenientes de set_fact de tareas previas)
+# ============================================================================
+
+- name: Verificar datos y ruta para exportación
+  fail:
+    msg: "Debe proporcionar 'ad_data' y 'export_path'"
+  when: ad_data is not defined or export_path is not defined
+
+- name: Exportar reporte de AD
+  ansible.windows.win_shell: |
+    $data = '{{ ad_data | to_json }}' | ConvertFrom-Json
+    $path = "{{ export_path }}"
+    $format = "{{ export_format | default('json') }}".ToLower()
+    
+    if ($format -eq "csv") {
+        $data | Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
+    } else {
+        $data | ConvertTo-Json -Depth 10 | Out-File -FilePath $path -Encoding UTF8
+    }
+    
+    Write-Output "Reporte exportado exitosamente a: $path"
+  register: ad_export_result
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Mostrar resultado de exportación
+  debug:
+    msg: "{{ ad_export_result.stdout }}"

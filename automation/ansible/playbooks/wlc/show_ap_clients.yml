@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Clientes de un AP en WLC
+# ============================================================================
+- name: Clientes de un AP
+  hosts: wlc_group
+  gather_facts: no
+  tasks:
+    - name: Consultar clientes del AP
+      include_role:
+        name: wlc
+        tasks_from: show_ap_clients.yml

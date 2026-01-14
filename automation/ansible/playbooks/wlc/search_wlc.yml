@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Búsqueda General en WLC
+# ============================================================================
+- name: Búsqueda en WLC
+  hosts: wlc_group
+  gather_facts: no
+  tasks:
+    - name: Ejecutar búsqueda
+      include_role:
+        name: wlc
+        tasks_from: search_wlc.yml

@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Reporte Telecom WLC
+# ============================================================================
+- name: Reporte Telecom
+  hosts: wlc_group
+  gather_facts: no
+  tasks:
+    - name: Ejecutar reporte
+      include_role:
+        name: wlc
+        tasks_from: generate_telecom_report.yml

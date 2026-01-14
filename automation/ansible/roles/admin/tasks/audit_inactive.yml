@@ -1,0 +1,52 @@
+---
+# ============================================================================
+# Role: admin - Task: audit_inactive (OPTIMIZADO)
+# Auditoría de inactivos con filtrado eficiente en el servidor
+# ============================================================================
+
+- name: Auditar objetos inactivos en AD (Server-side filtering)
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $days = if ("{{ inactive_days | default('') }}") { [int]"{{ inactive_days }}" } else { 90 }
+    $threshold = (Get-Date).AddDays(-$days).ToFileTime()
+    
+    # Usar el filtro de AD directamente (lastLogonTimestamp es más eficiente para esto)
+    $inactive_users = Get-ADUser -Filter "lastLogonTimestamp -le $threshold" -Properties lastLogonTimestamp, Enabled | ForEach-Object {
+        [PSCustomObject]@{
+            Type = "User"
+            Name = $_.Name
+            SamAccountName = $_.SamAccountName
+            Enabled = $_.Enabled
+        }
+    }
+    
+    $inactive_computers = Get-ADComputer -Filter "lastLogonTimestamp -le $threshold" -Properties lastLogonTimestamp, Enabled | ForEach-Object {
+        [PSCustomObject]@{
+            Type = "Computer"
+            Name = $_.Name
+            SamAccountName = $_.SamAccountName
+            Enabled = $_.Enabled
+        }
+    }
+    
+    @{
+        days = $days
+        users = $inactive_users
+        computers = $inactive_computers
+    } | ConvertTo-Json
+  register: ad_audit_raw
+  changed_when: false
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Parsear auditoría de AD
+  set_fact:
+    ad_audit: "{{ ad_audit_raw.stdout | from_json }}"
+
+- name: Mostrar resumen de auditoría
+  debug:
+    msg:
+      - "=========================================="
+      - "     AUDITORÍA DE CUENTAS INACTIVAS (Optimizado)"
+      - "=========================================="
+      - "Usuarios inactivos: {{ ad_audit.users | length }}"
+      - "Equipos inactivos: {{ ad_audit.computers | length }}"

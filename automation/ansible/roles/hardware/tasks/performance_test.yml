@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# Role: hardware - Task: performance_test (OPTIMIZADO)
+# Test de performance con queries WMI filtradas eficientemente
+# ============================================================================
+
+- name: Ejecutar pruebas de performance
+  ansible.windows.win_shell: |
+    # Test CPU
+    $cpu_perf = measure-command { $tmp = 1..100000 | %{ $_ * $_ } }
+    
+    # Test Disco (Query filtrada)
+    $path = "$env:TEMP\perf_test.tmp"
+    $disk_perf = measure-command { 
+        1..1000 | % { "test" | Out-File -FilePath $path -Append }
+        Remove-Item $path 
+    }
+    
+    # Test Memoria y Disco (CIM con filtros nativos)
+    $mem = Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory
+    $disk_info = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" | Select-Object Size, FreeSpace
+    
+    [PSCustomObject]@{
+        CPU_Calc_Time_MS = $cpu_perf.TotalMilliseconds
+        Disk_IO_Time_MS = $disk_perf.TotalMilliseconds
+        Total_Memory_KB = $mem.TotalVisibleMemorySize
+        Free_Memory_KB = $mem.FreePhysicalMemory
+        Disk_Free_Percent = [math]::Round(($disk_info.FreeSpace / $disk_info.Size) * 100, 2)
+        Load_Percentage = ($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize * 100
+    } | ConvertTo-Json
+  register: performance_optimized_raw
+  changed_when: false
+
+- name: Parsear resultados de performance
+  set_fact:
+    perf_results: "{{ performance_optimized_raw.stdout | from_json }}"
+
+- name: Mostrar reporte de performance
+  debug:
+    msg:
+      - "=========================================="
+      - "     REPORTE DE PERFORMANCE (Optimizado)"
+      - "=========================================="
+     - "CPU Score: {{ perf_results.CPU_Calc_Time_MS | round(2) }} ms"
+      - "Disk Score: {{ perf_results.Disk_IO_Time_MS | round(2) }} ms"
+      - "Espacio libre en C: {{ perf_results.Disk_Free_Percent }}%"
+      - "Uso de Memoria: {{ perf_results.Load_Percentage | round(2) }}%"

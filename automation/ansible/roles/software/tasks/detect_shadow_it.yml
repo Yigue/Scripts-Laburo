@@ -1,0 +1,39 @@
+---
+# ============================================================================
+# Role: software - Task: detect_shadow_it
+# Identificar aplicaciones fuera de estándar (Shadow IT)
+# ============================================================================
+# Variables:
+#   approved_apps: Lista de nombres de apps autorizadas (opcional)
+# ============================================================================
+
+- name: Detectar Shadow IT
+  ansible.windows.win_shell: |
+    $approved = if ("{{ approved_apps | default('') }}") { "{{ approved_apps }}".Split(",") } else { @("Microsoft Office", "Google Chrome", "Adobe Acrobat", "Ansible", "Corporate.App") }
+    
+    $installed = Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -and $_.UninstallString } | Select-Object -ExpandProperty DisplayName
+    
+    $shadow_apps = $installed | Where-Object { 
+        $name = $_
+        $found = $false
+        foreach ($app in $approved) {
+            if ($name -like "*$app*") { $found = $true; break }
+        }
+        -not $found
+    }
+    
+    $shadow_apps | ConvertTo-Json
+  register: shadow_it_raw
+  changed_when: false
+
+- name: Parsear Shadow IT
+  set_fact:
+    shadow_apps: "{{ shadow_it_raw.stdout | from_json }}"
+
+- name: Mostrar reporte Shadow IT
+  debug:
+    msg:
+      - "=========================================="
+      - "     REPORTE DE SHADOW IT (Apps no autorizadas)"
+      - "=========================================="
+      - "{{ shadow_apps | list }}"

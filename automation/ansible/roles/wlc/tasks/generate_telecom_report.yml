@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# Role: wlc - Task: generate_telecom_report
+# Generar reporte para telecomunicaciones
+# ============================================================================
+
+- name: Obtener datos para reporte telecom
+  cisco.ios.ios_command:
+    commands:
+      - "show ap summary"
+      - "show client summary"
+  register: telecom_data_raw
+
+- name: Mostrar resumen para reporte
+  debug:
+    msg:
+      - "=========================================="
+      - "     DATOS PARA REPORTE TELECOM"
+      - "=========================================="
+      - "Resumen de APs:"
+      - "{{ telecom_data_raw.stdout_lines[0] }}"
+      - "Resumen de Clientes:"
+      - "{{ telecom_data_raw.stdout_lines[1] }}"

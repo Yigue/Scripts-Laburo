@@ -1,0 +1,25 @@
+---
+# ============================================================================
+# Role: admin - Task: list_ad_computers (OPTIMIZADO)
+# Listar equipos del dominio usando módulos nativos
+# ============================================================================
+
+- name: Consultar equipos de AD usando microsoft.ad.computer_info
+  microsoft.ad.computer_info:
+    filter: "*"
+    search_base: "{{ ad_ou | default(omit) }}"
+    properties:
+      - OperatingSystem
+      - OperatingSystemVersion
+      - LastLogonDate
+      - Enabled
+  register: ad_computers_raw
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Mostrar lista de equipos
+  debug:
+    msg:
+      - "=========================================="
+      - "     EQUIPOS ENCONTRADOS EN AD (Native)"
+      - "=========================================="
+      - "{{ ad_computers_raw.computers | list }}"

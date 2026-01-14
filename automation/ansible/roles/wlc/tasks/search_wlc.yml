@@ -1,0 +1,23 @@
+---
+# ============================================================================
+# Role: wlc - Task: search_wlc
+# Realizar búsqueda de ip, hostname y todo en WLC
+# ============================================================================
+# Variables:
+#   wlc_search_term: Término de búsqueda
+# ============================================================================
+
+- name: Realizar búsqueda general en WLC
+  cisco.ios.ios_command:
+    commands:
+      - "show client summary | include {{ wlc_search_term }}"
+  register: wlc_search_raw
+  when: wlc_search_term is defined
+
+- name: Mostrar resultados de búsqueda
+  debug:
+    msg:
+      - "=========================================="
+      - "     RESULTADOS DE BÚSQUEDA: {{ wlc_search_term | default('TODO') }}"
+      - "=========================================="
+      - "{{ wlc_search_raw.stdout_lines[0] if wlc_search_term is defined else 'No se proporcionó término' }}"

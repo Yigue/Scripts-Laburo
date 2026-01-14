@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Conexión WLC
+# ============================================================================
+- name: Probar Conexión WLC
+  hosts: wlc_group
+  gather_facts: no
+  tasks:
+    - name: Ejecutar test de conexión
+      include_role:
+        name: wlc
+        tasks_from: connect_wlc.yml

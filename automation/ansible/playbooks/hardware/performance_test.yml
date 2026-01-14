@@ -1,0 +1,17 @@
+---
+# ============================================================================
+# Playbook: Test de Performance
+# ============================================================================
+- name: Test de Performance
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar performance test
+      include_role:
+        name: hardware
+        tasks_from: performance_test.yml
+
+    - name: Registrar auditoría
+      include_role:
+        name: common
+        tasks_from: log_action.yml

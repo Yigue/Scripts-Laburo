@@ -1,0 +1,45 @@
+---
+# ============================================================================
+# Role: hardware - Task: cleanup_old_users
+# Limpieza de usuarios viejos
+# ============================================================================
+# Variables:
+#   profile_age_days: Días de inactividad del perfil (default 180)
+# ============================================================================
+
+- name: Limpiar perfiles de usuario antiguos
+  ansible.windows.win_shell: |
+    $days = if ("{{ profile_age_days | default('') }}") { [int]"{{ profile_age_days }}" } else { 180 }
+    $limit = (Get-Date).AddDays(-$days)
+    
+    $profiles = Get-CimInstance Win32_UserProfile | Where-Object { $_.LastUseTime -lt $limit -and -not $_.Special }
+    
+    $removed = @()
+    foreach ($profile in $profiles) {
+        try {
+            # Se omite la eliminación real por seguridad a menos que se use un flag confirm
+            if ("{{ confirm_delete | default('no') }}" -eq "yes") {
+                $profile | Remove-CimInstance -ErrorAction Stop
+                $removed += $profile.LocalPath
+            } else {
+                $removed += "$($profile.LocalPath) (SKIPPED - Requiere confirm_delete=yes)"
+            }
+        } catch {
+            $removed += "$($profile.LocalPath) (ERROR: $($_.Exception.Message))"
+        }
+    }
+    
+    $removed | ConvertTo-Json
+  register: cleanup_users_raw
+
+- name: Parsear resultado de limpieza de usuarios
+  set_fact:
+    removed_profiles: "{{ cleanup_users_raw.stdout | from_json }}"
+
+- name: Mostrar reporte de limpieza de perfiles
+  debug:
+    msg:
+      - "=========================================="
+     - "     REPORTE DE LIMPIEZA DE PERFILES (> {{ profile_age_days | default(180) }} días)"
+      - "=========================================="
+      - "{{ removed_profiles | list }}"

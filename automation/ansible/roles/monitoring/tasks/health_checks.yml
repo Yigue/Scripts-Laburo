@@ -1,0 +1,48 @@
+---
+# ============================================================================
+# Role: monitoring - Task: health_checks
+# Chequeos periódicos de estado (Infra, Windows, Red)
+# ============================================================================
+
+- name: Ejecutar Health Checks
+  ansible.windows.win_shell: |
+    $results = @{
+        Services = @()
+        Disk = @()
+        Uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString("yyyy-MM-dd HH:mm:ss")
+    }
+    
+    # Chequeo de servicios
+    foreach ($svc_name in @("{{ critical_services | join('","') }}")) {
+        $svc = Get-Service -Name $svc_name -ErrorAction SilentlyContinue
+        $results.Services += [PSCustomObject]@{
+            Name = $svc_name
+            Status = if ($svc) { $svc.Status.ToString() } else { "NOT_FOUND" }
+        }
+    }
+    
+    # Chequeo de disco
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+    $results.Disk = [PSCustomObject]@{
+        FreePercent = [math]::Round(($disk.FreeSpace / $disk.Size) * 100, 2)
+        Status = if (($disk.FreeSpace / $disk.Size) * 100 -lt {{ disk_threshold_percent }}) { "CRITICAL" } else { "OK" }
+    }
+    
+    $results | ConvertTo-Json
+  register: health_raw
+  changed_when: false
+
+- name: Parsear resultados de salud
+  set_fact:
+    system_health: "{{ health_raw.stdout | from_json }}"
+
+- name: Mostrar reporte de salud
+  debug:
+    msg:
+      - "=========================================="
+     - "     REPORTE DE SALUD DEL SISTEMA"
+      - "=========================================="
+      - "Uptime (Last Boot): {{ system_health.Uptime }}"
+      - "Estado de Disco C: {{ system_health.Disk.Status }} ({{ system_health.Disk.FreePercent }}% libre)"
+      - "Servicios Críticos:"
+      - "{{ system_health.Services | list }}"

@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Detectar Shadow IT
+# ============================================================================
+- name: Detectar Shadow IT
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar detección
+      include_role:
+        name: software
+        tasks_from: detect_shadow_it.yml

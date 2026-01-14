@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Auditoría de Inactivos en AD
+# ============================================================================
+- name: Auditoría de Inactivos en AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar auditoría
+      include_role:
+        name: admin
+        tasks_from: audit_inactive.yml

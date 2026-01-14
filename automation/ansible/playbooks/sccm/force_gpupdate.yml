@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Forzar gpupdate
+# ============================================================================
+- name: Forzar gpupdate
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar gpupdate
+      include_role:
+        name: sccm
+        tasks_from: force_gpupdate.yml

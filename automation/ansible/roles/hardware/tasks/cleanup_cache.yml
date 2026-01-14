@@ -1,0 +1,50 @@
+---
+# ============================================================================
+# Role: hardware - Task: cleanup_cache
+# Limpieza de cache y archivos basura
+# ============================================================================
+
+- name: Limpiar archivos temporales y cache
+  ansible.windows.win_shell: |
+    $summary = @{
+        files_removed = 0
+        space_cleared_mb = 0
+    }
+    
+    $paths = @(
+        "$env:TEMP\*",
+        "C:\Windows\Temp\*",
+        "C:\Windows\SoftwareDistribution\Download\*"
+    )
+    
+    foreach ($path in $paths) {
+        $files = Get-ChildItem -Path $path -Recurse -ErrorAction SilentlyContinue
+        foreach ($file in $files) {
+            try {
+                if (-not $file.PsIsContainer) {
+                    $summary.space_cleared_mb += $file.Length / 1MB
+                }
+                Remove-Item $file.FullName -Force -Recurse -ErrorAction SilentlyContinue
+                $summary.files_removed++
+            } catch {}
+        }
+    }
+    
+    Clear-DnsClientCache -ErrorAction SilentlyContinue
+    
+    $summary | ConvertTo-Json
+  register: cleanup_raw
+
+- name: Parsear resultado de limpieza
+  set_fact:
+    cleanup_result: "{{ cleanup_raw.stdout | from_json }}"
+
+- name: Mostrar resultado de limpieza
+  debug:
+    msg:
+      - "=========================================="
+      - "     REPORTE DE LIMPIEZA DE CACHE"
+      - "=========================================="
+      - "Archivos eliminados: {{ cleanup_result.files_removed }}"
+      - "Espacio liberado: {{ cleanup_result.space_cleared_mb | round(2) }} MB"
+      - "Cache DNS: Reseteada"

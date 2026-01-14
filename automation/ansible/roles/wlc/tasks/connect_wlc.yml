@@ -1,0 +1,15 @@
+---
+# ============================================================================
+# Role: wlc - Task: connect_test
+# Test de conexión SSH a WLC
+# ============================================================================
+
+- name: Verificar conexión a WLC
+  cisco.ios.ios_command:
+    commands:
+      - show sysinfo
+  register: wlc_test_result
+
+- name: Mostrar resultado de conexión WLC
+  debug:
+    msg: "Conexión exitosa con WLC: {{ wlc_host }}"

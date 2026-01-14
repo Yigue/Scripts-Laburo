@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# Role: wlc - Task: show_ap_clients
+# Ver todos los clientes conectados a un AP
+# ============================================================================
+# Variables:
+#   wlc_ap_name: Nombre del AP
+# ============================================================================
+
+- name: Verificar que se proporcionó el nombre del AP
+  fail:
+    msg: "Debe proporcionar el nombre del AP con --extra-vars 'wlc_ap_name=AP_NAME'"
+  when: wlc_ap_name is not defined or wlc_ap_name == ""
+
+- name: Consultar clientes del AP
+  cisco.ios.ios_command:
+    commands:
+      - "show client ap {{ wlc_ap_name }}"
+  register: ap_clients_raw
+
+- name: Mostrar clientes del AP
+  debug:
+    msg:
+      - "=========================================="
+      - "     CLIENTES CONECTADOS AL AP: {{ wlc_ap_name }}"
+      - "=========================================="
+      - "{{ ap_clients_raw.stdout_lines[0] }}"

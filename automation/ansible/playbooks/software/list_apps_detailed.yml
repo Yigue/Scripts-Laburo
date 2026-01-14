@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Listar Apps Detallado
+# ============================================================================
+- name: Listar Apps Detallado
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar apps
+      include_role:
+        name: software
+        tasks_from: list_apps_detailed.yml

@@ -1,0 +1,32 @@
+---
+# ============================================================================
+# Role: monitoring - Task: collect_metrics
+# Recolección de métricas clave y salida estructurada
+# ============================================================================
+
+- name: Recolectar métricas clave
+  ansible.windows.win_shell: |
+    $cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
+    $mem = Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory
+    
+    [PSCustomObject]@{
+        CPU_Load = $cpu
+        Mem_Used_Percent = [math]::Round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
+        Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    } | ConvertTo-Json
+  register: metrics_raw
+  changed_when: false
+
+- name: Parsear métricas
+  set_fact:
+    system_metrics: "{{ metrics_raw.stdout | from_json }}"
+
+- name: Mostrar métricas actuales
+  debug:
+    msg:
+      - "=========================================="
+      - "     MÉTRICAS DEL SISTEMA (Real-time)"
+      - "=========================================="
+     - "CPU Load: {{ system_metrics.CPU_Load }}%"
+      - "Memory usage: {{ system_metrics.Mem_Used_Percent }}%"
+      - "Time: {{ system_metrics.Timestamp }}"

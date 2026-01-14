@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Validar Features Windows
+# ============================================================================
+- name: Validar Features Windows
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar features
+      include_role:
+        name: software
+        tasks_from: validate_features.yml

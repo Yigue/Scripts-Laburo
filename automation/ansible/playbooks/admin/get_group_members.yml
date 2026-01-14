@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Obtener Miembros de Grupo AD
+# ============================================================================
+- name: Miembros de Grupo AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar miembros de grupo
+      include_role:
+        name: admin
+        tasks_from: get_group_members.yml

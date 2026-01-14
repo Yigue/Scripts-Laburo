@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# Role: wlc - Task: get_client_info
+# Ver toda la información de un cliente por IP / MAC
+# ============================================================================
+# Variables:
+#   wlc_client_id: IP o MAC del cliente
+# ============================================================================
+
+- name: Verificar que se proporcionó el ID del cliente
+  fail:
+    msg: "Debe proporcionar el ID del cliente con --extra-vars 'wlc_client_id=ID'"
+  when: wlc_client_id is not defined or wlc_client_id == ""
+
+- name: Consultar detalle del cliente
+  cisco.ios.ios_command:
+    commands:
+      - "show client detail {{ wlc_client_id }}"
+  register: client_detail_raw
+
+- name: Mostrar detalle del cliente
+  debug:
+    msg:
+      - "=========================================="
+      - "     DETALLE DEL CLIENTE: {{ wlc_client_id }}"
+      - "=========================================="
+      - "{{ client_detail_raw.stdout_lines[0] }}"

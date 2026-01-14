@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Restablecer Adaptador de Red
+# ============================================================================
+- name: Restablecer Adaptador de Red
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar reset de adaptador
+      include_role:
+        name: network
+        tasks_from: reset_adapter.yml

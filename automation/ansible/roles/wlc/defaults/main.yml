@@ -1,0 +1,14 @@
+---
+# ============================================================================
+# Variables por defecto para el role wlc
+# ============================================================================
+
+wlc_host: "wlc.dominio.local"
+wlc_user: "admin"
+wlc_password: "vault_password_placeholder"
+
+# Filtro para APs de CIT
+wlc_site_filter: "CIT"
+
+# Timeout SSH
+wlc_timeout: 30

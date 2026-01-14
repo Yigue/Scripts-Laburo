@@ -1,0 +1,42 @@
+---
+# ============================================================================
+# Role: sccm - Task: audit_missing_clients
+# Auditoría de equipos sin cliente SCCM o que no reportan
+# ============================================================================
+
+- name: Auditar equipos sin cliente SCCM
+  ansible.windows.win_shell: |
+    Import-Module ActiveDirectory
+    $namespace = "root\sms\site_{{ sccm_site_code }}"
+    
+    $ad_computers = Get-ADComputer -Filter 'Enabled -eq $true' | Select-Object -ExpandProperty Name
+    $sccm_devices = Get-CimInstance -ComputerName "{{ sccm_server }}" -Namespace $namespace -Query "SELECT Name FROM SMS_R_System WHERE Client = 1" | Select-Object -ExpandProperty Name
+    
+    $missing = $ad_computers | Where-Object { $_ -notin $sccm_devices }
+    
+    @{
+        total_ad = $ad_computers.Count
+        total_sccm = $sccm_devices.Count
+        missing_count = $missing.Count
+        missing_list = $missing
+    } | ConvertTo-Json
+  register: sccm_audit_raw
+  changed_when: false
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Parsear auditoría SCCM
+  set_fact:
+    sccm_audit: "{{ sccm_audit_raw.stdout | from_json }}"
+
+- name: Mostrar resumen de auditoría SCCM
+  debug:
+    msg:
+      - "=========================================="
+      - "     AUDITORÍA SCCM vs AD"
+      - "=========================================="
+      - "Equipos en AD: {{ sccm_audit.total_ad }}"
+      - "Equipos con cliente SCCM: {{ sccm_audit.total_sccm }}"
+      - "Equipos sin SCCM: {{ sccm_audit.missing_count }}"
+      - "------------------------------------------"
+      - "LISTA DE EQUIPOS FALTANTES:"
+      - "{{ sccm_audit.missing_list | list }}"

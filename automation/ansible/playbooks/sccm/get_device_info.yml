@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Info de Dispositivo en SCCM
+# ============================================================================
+- name: Info de Dispositivo en SCCM
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Consultar equipo en SCCM
+      include_role:
+        name: sccm
+        tasks_from: get_device_info.yml

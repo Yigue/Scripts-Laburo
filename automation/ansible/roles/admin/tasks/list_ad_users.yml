@@ -1,0 +1,33 @@
+---
+# ============================================================================
+# Role: admin - Task: list_ad_users (OPTIMIZADO)
+# Listar usuarios en Active Directory usando módulos nativos
+# ============================================================================
+
+- name: Consultar usuarios de AD usando microsoft.ad.user_info
+  microsoft.ad.user_info:
+    filter: "{{ ad_filter | default('*') }}"
+    search_scope: subtree
+    search_base: "{{ ad_ou | default(omit) }}"
+    properties:
+      - LockedOut
+      - Enabled
+      - LastLogonDate
+      - PasswordLastSet
+  register: ad_users_raw
+  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+
+- name: Parsear y formatear usuarios de AD
+  set_fact:
+    ad_users: >-
+      {{
+        ad_users_raw.users | map('dict2items') | map('items2dict') | list
+      }}
+
+- name: Mostrar lista de usuarios
+  debug:
+    msg:
+      - "=========================================="
+      - "     USUARIOS ENCONTRADOS EN AD (Native)"
+      - "=========================================="
+      - "{{ ad_users | list }}"

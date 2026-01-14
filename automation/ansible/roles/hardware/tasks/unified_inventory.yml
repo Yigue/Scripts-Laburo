@@ -1,0 +1,39 @@
+---
+# ============================================================================
+# Role: hardware - Task: unified_inventory (OPTIMIZADO)
+# Inventario unificado con consultas CIM filtradas eficientemente
+# ============================================================================
+
+- name: Recolectar datos para inventario unificado
+  ansible.windows.win_shell: |
+    # Consultas filtradas nativamente
+    $os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, SerialNumber
+    $cpu = Get-CimInstance Win32_Processor | Select-Object Name
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" | Select-Object Size, FreeSpace
+    $net = Get-NetIPAddress -InterfaceAlias "Wi-Fi", "Ethernet" -AddressFamily IPv4 | Select-Object IPAddress, InterfaceAlias
+    
+    [PSCustomObject]@{
+        Hostname = $env:COMPUTERNAME
+        SO = $os.Caption
+        Version = $os.Version
+        Serial = $os.SerialNumber
+        CPU = $cpu.Name
+        Disk_Total_GB = [math]::Round($disk.Size / 1GB, 2)
+        Disk_Free_GB = [math]::Round($disk.FreeSpace / 1GB, 2)
+        Network = $net
+        ReportTime = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    } | ConvertTo-Json
+  register: unified_inv_raw
+  changed_when: false
+
+- name: Parsear inventario unificado
+  set_fact:
+    unified_inv: "{{ unified_inv_raw.stdout | from_json }}"
+
+- name: Mostrar reporte unificado
+  debug:
+    msg:
+      - "=========================================="
+      - "     INVENTARIO UNIFICADO (Queries Optimizadas)"
+      - "=========================================="
+      - "{{ unified_inv }}"

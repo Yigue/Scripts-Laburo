@@ -1,7 +1,7 @@
 ---
 # ============================================================================
-# Role: common - Punto de entrada principal
-# Utilidades compartidas para todas las automatizaciones
+# Role: monitoring - Punto de entrada principal
+# Salud del sistema y monitoreo
 # ============================================================================
 
 - name: Incluir tareas según variable task_name

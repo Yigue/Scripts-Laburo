@@ -1,7 +1,7 @@
 ---
 # ============================================================================
-# Role: common - Punto de entrada principal
-# Utilidades compartidas para todas las automatizaciones
+# Role: sccm - Punto de entrada principal
+# Gestión de Endpoint Management via SCCM
 # ============================================================================
 
 - name: Incluir tareas según variable task_name

@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# Role: common - Task: log_action
+# Registrar ejecución en el log de auditoría centralizado
+# ============================================================================
+
+- name: Asegurar que el directorio de logs existe
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../../logs"
+    state: directory
+  delegate_to: localhost
+  run_once: true
+
+- name: Registrar acción en audit.json
+  ansible.builtin.lineinfile:
+    path: "{{ playbook_dir }}/../../logs/audit.json"
+    line: "{{ audit_entry | to_json }}"
+    create: yes
+  vars:
+    audit_entry:
+      timestamp: "{{ lookup('pipe', 'date +\"%Y-%m-%d %H:%M:%S\"') }}"
+      playbook: "{{ ansible_playbook_python | basename }}"
+      target: "{{ inventory_hostname }}"
+      status: "SUCCESS"
+      user: "{{ lookup('env', 'USER') | default('ansible_user') }}"
+  delegate_to: localhost

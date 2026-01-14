@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# Role: software - Task: manage_services
+# Gestión de servicios Windows
+# ============================================================================
+# Variables:
+#   win_service_name: Nombre del servicio
+#   win_service_state: Estado deseado (started, stopped, restarted)
+#   win_service_start_mode: Tipo de inicio (auto, manual, disabled)
+# ============================================================================
+
+- name: Gestionar servicio Windows
+  ansible.windows.win_service:
+    name: "{{ win_service_name }}"
+    state: "{{ win_service_state | default('started') }}"
+    start_mode: "{{ win_service_start_mode | default('auto') }}"
+  register: service_manage_result
+
+- name: Mostrar resultado de gestión de servicio
+  debug:
+    msg:
+      - "Servicio: {{ win_service_name }}"
+      - "Estado actual: {{ service_manage_result.state }}"
+      - "Cambiado: {{ service_manage_result.changed }}"

@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Listar Dispositivos en SCCM
+# ============================================================================
+- name: Listar Dispositivos en SCCM
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Consultar SCCM
+      include_role:
+        name: sccm
+        tasks_from: list_devices.yml

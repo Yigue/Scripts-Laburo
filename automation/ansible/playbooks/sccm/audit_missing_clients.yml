@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Auditoría Sin SCCM
+# ============================================================================
+- name: Auditoría Sin SCCM
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Ejecutar auditoría sccm vs ad
+      include_role:
+        name: sccm
+        tasks_from: audit_missing_clients.yml

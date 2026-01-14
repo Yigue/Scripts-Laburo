@@ -1,0 +1,11 @@
+---
+# ============================================================================
+# Variables por defecto para el role sccm
+# ============================================================================
+
+# Servidor de sitio SCCM / MECM
+sccm_server: "sccm.dominio.local"
+sccm_site_code: "PRI"
+
+# Timeout para operaciones WMI/SCCM
+sccm_timeout: 60

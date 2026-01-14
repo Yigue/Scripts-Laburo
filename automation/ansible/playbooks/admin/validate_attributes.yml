@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Validar Atributos en AD
+# ============================================================================
+- name: Validar Atributos en AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar validación
+      include_role:
+        name: admin
+        tasks_from: validate_attributes.yml

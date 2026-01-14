@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Disparar Acciones SCCM
+# ============================================================================
+- name: Disparar Acciones SCCM
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar trigger SCCM
+      include_role:
+        name: sccm
+        tasks_from: trigger_actions.yml

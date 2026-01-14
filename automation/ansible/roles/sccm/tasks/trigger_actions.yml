@@ -1,0 +1,19 @@
+---
+# ============================================================================
+# Role: sccm - Task: trigger_actions
+# Disparar acciones del cliente SCCM (no invasivas)
+# ============================================================================
+# Variables:
+#   sccm_action: ID de la acción a disparar
+# ============================================================================
+
+- name: Disparar ciclo de políticas SCCM
+  ansible.windows.win_shell: |
+    $action_id = "{{ sccm_action | default('{00000000-0000-0000-0000-000000000021}') }}"
+    Invoke-CimMethod -Namespace "root\ccm" -ClassName "SMS_Client" -MethodName "TriggerSchedule" -Arguments @{ sScheduleID = $action_id }
+    Write-Output "Acción SCCM $action_id disparada correctamente"
+  register: sccm_trigger_result
+
+- name: Mostrar resultado de acción SCCM
+  debug:
+    msg: "{{ sccm_trigger_result.stdout }}"

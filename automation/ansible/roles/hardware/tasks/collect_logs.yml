@@ -1,0 +1,53 @@
+---
+# ============================================================================
+# Role: hardware - Task: collect_logs
+# Recolección de logs básicos para diagnóstico remoto
+# ============================================================================
+# Variables:
+#   log_count: Cantidad de eventos a recuperar (default 20)
+# ============================================================================
+
+- name: Recolectar logs de eventos
+  ansible.windows.win_shell: |
+    $count = if ("{{ log_count | default('') }}") { [int]"{{ log_count }}" } else { 20 }
+    
+    $system_errors = Get-WinEvent -LogName System -MaxEvents $count -FilterHashTable @{Level=2} -ErrorAction SilentlyContinue | ForEach-Object {
+        [PSCustomObject]@{
+            Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+            Source = $_.ProviderName
+            ID = $_.Id
+            Message = $_.Message.Substring(0, [math]::Min($_.Message.Length, 100))
+        }
+    }
+    
+    $app_errors = Get-WinEvent -LogName Application -MaxEvents $count -FilterHashTable @{Level=2} -ErrorAction SilentlyContinue | ForEach-Object {
+        [PSCustomObject]@{
+            Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+            Source = $_.ProviderName
+            ID = $_.Id
+            Message = $_.Message.Substring(0, [math]::Min($_.Message.Length, 100))
+        }
+    }
+    
+    @{
+        system_logs = $system_errors
+        application_logs = $app_errors
+    } | ConvertTo-Json
+  register: logs_raw
+  changed_when: false
+
+- name: Parsear logs recolectados
+  set_fact:
+    remote_logs: "{{ logs_raw.stdout | from_json }}"
+
+- name: Mostrar reporte de logs
+  debug:
+    msg:
+      - "=========================================="
+      - "     RECOLECCIÓN DE LOGS DE EVENTOS (Errores)"
+      - "=========================================="
+      - "SYSTEM LOGS:"
+      - "{{ remote_logs.system_logs | list }}"
+      - "------------------------------------------"
+      - "APPLICATION LOGS:"
+      - "{{ remote_logs.application_logs | list }}"

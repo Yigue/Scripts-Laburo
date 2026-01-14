@@ -1,0 +1,43 @@
+---
+# ============================================================================
+# Role: sccm - Task: get_device_info
+# Consultar información detallada de un equipo en SCCM
+# ============================================================================
+# Variables:
+#   sccm_device_name: Nombre del equipo
+# ============================================================================
+
+- name: Verificar que se proporcionó el nombre del equipo
+  fail:
+    msg: "Debe proporcionar el nombre del equipo con --extra-vars 'sccm_device_name=EQUIPO'"
+  when: sccm_device_name is not defined or sccm_device_name == ""
+
+- name: Consultar info de equipo en SCCM
+  ansible.windows.win_shell: |
+    $name = "{{ sccm_device_name }}"
+    $namespace = "root\sms\site_{{ sccm_site_code }}"
+    
+    try {
+        $device = Get-CimInstance -ComputerName "{{ sccm_server }}" -Namespace $namespace -Query "SELECT * FROM SMS_R_System WHERE Name = '$name'" -ErrorAction Stop
+        if ($device) {
+            $device | ConvertTo-Json
+        } else {
+            @{ error = "Dispositivo '$name' no encontrado en SCCM" } | ConvertTo-Json
+        }
+    } catch {
+        @{ error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: sccm_device_info_raw
+  changed_when: false
+
+- name: Parsear info de equipo SCCM
+  set_fact:
+    sccm_device_info: "{{ sccm_device_info_raw.stdout | from_json }}"
+
+- name: Mostrar info de equipo SCCM
+  debug:
+    msg:
+      - "=========================================="
+      - "     INFORMACIÓN DE EQUIPO EN SCCM"
+      - "=========================================="
+      - "{{ sccm_device_info }}"

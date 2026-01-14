@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Ver APs CIT en WLC
+# ============================================================================
+- name: Ver APs CIT
+  hosts: wlc_group
+  gather_facts: no
+  tasks:
+    - name: Consultar lista de APs
+      include_role:
+        name: wlc
+        tasks_from: show_ap_list.yml

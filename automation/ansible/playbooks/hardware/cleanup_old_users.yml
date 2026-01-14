@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Limpiar Usuarios Viejos
+# ============================================================================
+- name: Limpiar Usuarios Viejos
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar limpieza de usuarios
+      include_role:
+        name: hardware
+        tasks_from: cleanup_old_users.yml

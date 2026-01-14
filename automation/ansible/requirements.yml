@@ -21,6 +21,12 @@ collections:
   # Chocolatey (opcional pero útil para instalación de software)
   - name: chocolatey.chocolatey
     version: ">=1.5.0"
+  
+  # Cisco IOS y Netcommon para WLC (NUEVO)
+  - name: cisco.ios
+    version: ">=6.0.0"
+  - name: ansible.netcommon
+    version: ">=5.0.0"
 
 # Roles adicionales (si necesitamos alguno en el futuro)
 roles: []

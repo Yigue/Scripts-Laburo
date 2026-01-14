@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Limpieza de Cache
+# ============================================================================
+- name: Limpieza de Cache
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar limpieza
+      include_role:
+        name: hardware
+        tasks_from: cleanup_cache.yml

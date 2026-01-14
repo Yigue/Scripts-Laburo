@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Recolección de Logs
+# ============================================================================
+- name: Recolección de Logs
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar recolección de logs
+      include_role:
+        name: hardware
+        tasks_from: collect_logs.yml

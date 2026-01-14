@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Listar Equipos en AD
+# ============================================================================
+- name: Listar Equipos en AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar equipos
+      include_role:
+        name: admin
+        tasks_from: list_ad_computers.yml

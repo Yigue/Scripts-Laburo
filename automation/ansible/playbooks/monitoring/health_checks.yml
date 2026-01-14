@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Health Checks Monitoreo
+# ============================================================================
+- name: Health Checks Monitoreo
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar chequeos de salud
+      include_role:
+        name: monitoring
+        tasks_from: health_checks.yml

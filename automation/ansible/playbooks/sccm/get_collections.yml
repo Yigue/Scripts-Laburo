@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Colecciones SCCM
+# ============================================================================
+- name: Colecciones SCCM
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Consultar colecciones
+      include_role:
+        name: sccm
+        tasks_from: get_collections.yml

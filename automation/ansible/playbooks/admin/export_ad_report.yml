@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# Playbook: Exportar Reporte de AD
+# ============================================================================
+- name: Exportar Reporte de AD
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar exportación
+      include_role:
+        name: admin
+        tasks_from: export_ad_report.yml

@@ -1,0 +1,35 @@
+---
+# ============================================================================
+# Role: sccm - Task: get_client_status
+# Consultar estado del cliente SCCM en el equipo
+# ============================================================================
+
+- name: Obtener estado del cliente SCCM
+  ansible.windows.win_shell: |
+    try {
+        $ccm = Get-CimInstance -Namespace "root\ccm" -Class "CCM_Client" -ErrorAction Stop
+        $state = Get-Service -Name "CcmExec"
+        
+        [PSCustomObject]@{
+            Installed = $true
+            Version = $ccm.ClientVersion
+            ServiceStatus = $state.Status.ToString()
+            SiteCode = $ccm.SiteCode
+        } | ConvertTo-Json
+    } catch {
+        @{ Installed = $false; error = $_.Exception.Message } | ConvertTo-Json
+    }
+  register: sccm_client_status_raw
+  changed_when: false
+
+- name: Parsear estado cliente SCCM
+  set_fact:
+    sccm_client_status: "{{ sccm_client_status_raw.stdout | from_json }}"
+
+- name: Mostrar estado cliente SCCM
+  debug:
+    msg:
+      - "=========================================="
+      - "     ESTADO DEL CLIENTE SCCM"
+      - "=========================================="
+     - "{{ sccm_client_status }}"

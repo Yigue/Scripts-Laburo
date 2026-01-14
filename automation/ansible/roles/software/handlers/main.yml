@@ -1,0 +1,14 @@
+---
+# ============================================================================
+# Role: software - Handlers
+# ============================================================================
+
+- name: Reiniciar equipo
+  ansible.windows.win_reboot:
+    msg: "Reinicio solicitado por Ansible después de cambios de software"
+    reboot_timeout: 600
+
+- name: Reiniciar spooler
+  ansible.windows.win_service:
+    name: Spooler
+    state: restarted
