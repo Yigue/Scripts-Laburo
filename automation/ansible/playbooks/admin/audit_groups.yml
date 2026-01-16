@@ -1,0 +1,30 @@
+---
+# Playbook para auditoría de grupos de AD (Usuario y Equipo)
+- name: Auditoría de Grupos de AD
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Consultar grupos en AD
+      ansible.windows.win_shell: |
+        try {
+            $computer = Get-ADComputer -Identity "{{ target_host }}" -Properties MemberOf
+            $comp_groups = $computer.MemberOf | ForEach-Object { (Get-ADGroup -Identity $_).Name }
+            
+            # Intentar obtener el usuario logueado actualmente en el equipo para buscar sus grupos
+            # Nota: Esto requiere que el equipo esté online para consultar quién está logueado
+            # Por ahora consultamos solo los del equipo si no se pasa un usuario específico
+            
+            @{
+                computer_name = $computer.Name
+                computer_groups = $comp_groups
+            } | ConvertTo-Json
+        } catch {
+            @{ error = $_.Exception.Message } | ConvertTo-Json
+        }
+      register: ad_audit_info
+      delegate_to: localhost
+    
+    - name: Mostrar Info de Auditoría
+      debug:
+        msg: "{{ ad_audit_info.stdout | from_json }}"

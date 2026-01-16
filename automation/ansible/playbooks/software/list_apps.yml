@@ -1,0 +1,10 @@
+---
+# Playbook para listar todas las aplicaciones instaladas
+- name: Listar Software Instalado
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: Obtener lista de aplicaciones
+      include_role:
+        name: software
+        tasks_from: list_apps

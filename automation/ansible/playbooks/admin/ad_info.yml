@@ -1,0 +1,31 @@
+---
+# Playbook para obtener información del equipo en AD
+- name: Obtener Info de Active Directory
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Consultar AD para el equipo
+      ansible.windows.win_shell: |
+        try {
+            $computer = Get-ADComputer -Identity "{{ target_host }}" -Properties OperatingSystem, OperatingSystemVersion, WhenCreated, LastLogonDate, IPv4Address, DistinguishedName
+            if ($computer) {
+                @{
+                    name = $computer.Name
+                    os = $computer.OperatingSystem
+                    os_version = $computer.OperatingSystemVersion
+                    created = $computer.WhenCreated.ToString("yyyy-MM-dd HH:mm:ss")
+                    last_logon = $computer.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss")
+                    ip = $computer.IPv4Address
+                    dn = $computer.DistinguishedName
+                } | ConvertTo-Json
+            }
+        } catch {
+            @{ error = $_.Exception.Message } | ConvertTo-Json
+        }
+      register: ad_computer_info
+      delegate_to: localhost # Asumiendo que WSL tiene acceso a AD o se ejecuta desde un host con AD
+    
+    - name: Mostrar Info de AD
+      debug:
+        msg: "{{ ad_computer_info.stdout | from_json }}"

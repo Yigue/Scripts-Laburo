@@ -29,7 +29,7 @@ logs/
 *.temp
 .DS_Store
 Thumbs.db
-
+.vault_pass
 # IDE
 .idea/
 .vscode/

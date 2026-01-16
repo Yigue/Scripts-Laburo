@@ -1,0 +1,10 @@
+---
+# Playbook para verificar actualizaciones de Windows pendientes
+- name: Verificar Windows Updates
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar actualizaciones de Windows
+      include_role:
+        name: common
+        tasks_from: check_windows_updates

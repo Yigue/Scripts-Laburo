@@ -1,0 +1,39 @@
+---
+# Playbook para limpieza profunda de temporales (Teams, Outlook, Temp)
+- name: Limpieza Profunda de Temporales
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: Limpieza de carpetas temporales del sistema
+      ansible.windows.win_shell: |
+        $paths = @(
+            "C:\Windows\Temp\*",
+            "$env:LOCALAPPDATA\Temp\*"
+        )
+        foreach ($path in $paths) {
+            Get-ChildItem -Path $path -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    
+    - name: Limpieza de caché de Microsoft Teams
+      ansible.windows.win_shell: |
+        $teamsPath = "$env:APPDATA\Microsoft\Teams"
+        if (Test-Path $teamsPath) {
+            $folders = @("blob_storage", "Cache", "databases", "GPUCache", "IndexedDB", "Local Storage", "tmp")
+            foreach ($folder in $folders) {
+                $target = Join-Path $teamsPath $folder
+                if (Test-Path $target) {
+                    Get-ChildItem -Path "$target\*" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    
+    - name: Limpieza de caché de Outlook
+      ansible.windows.win_shell: |
+        $outlookPath = "$env:LOCALAPPDATA\Microsoft\Outlook\RoamCache"
+        if (Test-Path $outlookPath) {
+            Get-ChildItem -Path "$outlookPath\*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+
+    - name: Resultado de limpieza
+      debug:
+        msg: "Limpieza profunda completada en {{ target_host }}"

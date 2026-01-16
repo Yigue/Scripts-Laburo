@@ -1,0 +1,38 @@
+---
+# Playbook para Auditoría General de Salud (Combo H1, H7, H8, H9)
+- name: Auditoría General de Salud
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: 1. Obtener especificaciones (H1)
+      include_role:
+        name: hardware
+        tasks_from: specs
+      register: specs_res
+
+    - name: 2. Salud de Batería (H7)
+      include_role:
+        name: hardware
+        tasks_from: battery_health
+      register: battery_res
+      ignore_errors: yes
+
+    - name: 3. Reporte SMART de Disco (H8)
+      include_role:
+        name: hardware
+        tasks_from: disk_smart
+      register: smart_res
+
+    - name: 4. Buscar Windows Updates (H9)
+      include_role:
+        name: common
+        tasks_from: check_windows_updates
+      register: updates_res
+
+    - name: Resumen de Auditoría
+      debug:
+        msg:
+          specs: "{{ specs_res }}"
+          battery: "{{ battery_res }}"
+          smart: "{{ smart_res }}"
+          updates: "{{ updates_res }}"

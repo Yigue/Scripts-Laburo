@@ -1,0 +1,18 @@
+---
+# Playbook para verificar el estado de BitLocker
+- name: Estado de BitLocker
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: Consultar estado de BitLocker
+      include_role:
+        name: common
+        tasks_from: check_bitlocker_status
+    
+    - name: Formatear y mostrar resultados
+      debug:
+        msg: |
+          Estado de Protección: {{ bitlocker_status.protection_status }}
+          Porcentaje de Cifrado: {{ bitlocker_status.encryption_percentage }}%
+          Estado del Volumen: {{ bitlocker_status.volume_status }}
+          Protectores de Clave: {{ bitlocker_status.key_protector }}

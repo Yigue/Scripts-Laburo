@@ -1,0 +1,13 @@
+---
+# Playbook para ejecución de script custom
+- name: Ejecutar Script Custom
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar comando PowerShell custom
+      ansible.windows.win_shell: "{{ custom_script }}"
+      register: script_res
+    
+    - name: Mostrar resultado del script
+      debug:
+        msg: "{{ script_res.stdout_lines }}"
