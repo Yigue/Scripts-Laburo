@@ -1,22 +1,57 @@
-# IT-Ops CLI PRO (Versión Mejorada)
+# IT-Ops CLI PRO - Background Execution System
 
-Esta carpeta contiene la propuesta de mejora de UI/UX para el IT-Ops CLI, integrando el sistema de ejecución asíncrona.
+Sistema de ejecución asíncrona para playbooks de Ansible con interfaz interactiva y dashboard en tiempo real.
 
-## Cambios Clave de Diseño (UX)
+## Características
 
-1.  **Modelo No Bloqueante**: En la versión original (`app.py`), cuando lanzás un playbook, tenés que esperar a que termine para hacer cualquier otra cosa. En **`app_professional.py`**, las tareas se envían al motor de segundo plano y podés seguir navegando por los menús inmediatamente.
-2.  **Visibilidad de Estado**: La cabecera muestra siempre el equipo seleccionado y cuántos trabajos están corriendo actualmente.
-3.  **Monitoreo Centralizado**: En lugar de ver los logs pasar rápido por la pantalla, tenés un **Dashboard** dedicado donde podés monitorear todas las tareas juntas, ver cuáles fallaron y cuáles terminaron, con sus respectivos logs secundarios.
-4.  **Consistencia Visual**: Uso de Layouts de Rich para una interfaz que se siente como una aplicación moderna y no solo un script de consola.
+1. **Modelo No Bloqueante**: Lanzá playbooks y seguí trabajando sin esperar a que terminen
+2. **Dashboard en Tiempo Real**: Monitoreá todas las tareas activas en un panel visual
+3. **Menú Interactivo**: Interfaz clara con categorías organizadas
+4. **Ejecución Asíncrona**: Múltiples tareas ejecutándose en paralelo
 
-## Cómo ejecutar
+## Instalación
 
-Desde la raíz del proyecto o dentro de esta carpeta:
 ```bash
-python testSecondplaner/app_professional.py
+pip install -r requirements.txt
 ```
 
-## Estructura de Archivos
-- `engine.py`: Motor de gestión de hilos y procesos.
-- `dashboard.py`: Interfaz visual dinámica.
-- `app_professional.py`: El punto de entrada que combina el menú interactivo con el motor asíncrono.
+## Uso
+
+### Menú Interactivo (Recomendado)
+```bash
+python app.py
+# o específicamente:
+python app.py menu
+```
+
+### Solo Dashboard
+```bash
+python app.py dashboard
+```
+
+## Estructura del Proyecto
+
+```
+testSecondplaner/
+├── app.py                 # Punto de entrada principal
+├── core/
+│   └── engine.py         # Motor de ejecución asíncrona
+├── ui/
+│   ├── dashboard.py      # Dashboard en tiempo real
+│   └── menu.py           # Menú interactivo
+├── config/
+│   └── menu_data.py      # Configuración de menús y playbooks
+├── requirements.txt       # Dependencias Python
+└── README.md             # Esta documentación
+```
+
+## Componentes
+
+- **BackgroundEngine**: Gestiona jobs y ejecución en hilos separados
+- **Dashboard**: Visualización en tiempo real de jobs activos y logs
+- **MainMenu**: Menú interactivo para lanzar tareas y gestionar targets
+
+## Modos de Ejecución
+
+1. **Menú Interactivo**: Navegá por categorías y lanzá tareas fácilmente
+2. **Dashboard**: Monitoreá tareas activas con logs en tiempo real

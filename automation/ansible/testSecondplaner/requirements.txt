@@ -1,0 +1,14 @@
+# ============================================================================
+# IT-OPS CLI PRO - Background Execution System
+# Dependencias para testSecondplaner
+# ============================================================================
+
+# UI Interactiva - Dashboard y Menús
+rich>=13.0.0                    # Para Live dashboard, tablas, paneles, layouts
+questionary>=2.0.0              # Para menús interactivos y prompts
+
+# Ansible Core - Motor de ejecución de playbooks
+ansible-core>=2.15.0            # Requerido por engine.py para ejecutar ansible-playbook
+
+# Gestión de configuración
+python-dotenv>=1.0.0            # Para persistencia de contexto (.env)

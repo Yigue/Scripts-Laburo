@@ -1,3 +1,0 @@
-"""
-Módulos de funcionalidades (Features)
-"""
