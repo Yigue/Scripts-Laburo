@@ -27,6 +27,10 @@ class MenuOption:
         requires_input: Si necesita input adicional del usuario
         input_prompt: Mensaje para solicitar input
         input_var_name: Nombre de la variable para pasar a Ansible
+        action_type: Tipo de acción (read-only, modify, destructive)
+        can_background: Si puede ejecutarse en segundo plano
+        can_new_window: Si puede abrirse en nueva ventana
+        requires_hostname: Si requiere hostname del equipo target
     """
     key: str
     label: str
@@ -35,6 +39,10 @@ class MenuOption:
     requires_input: bool = False
     input_prompt: str = ""
     input_var_name: str = ""
+    action_type: str = "read-only"  # read-only, modify, destructive
+    can_background: bool = True
+    can_new_window: bool = False
+    requires_hostname: bool = True
 
 
 @dataclass

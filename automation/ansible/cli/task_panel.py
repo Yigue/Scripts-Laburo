@@ -14,7 +14,12 @@ from rich import box
 from rich.align import Align
 
 from .config import console
-from .task_manager import task_manager, TaskStatus
+from .task_manager import (
+    get_summary as task_get_summary,
+    get_active_tasks as task_get_active_tasks,
+    get_all_tasks as task_get_all_tasks,
+    TaskStatus
+)
 
 
 def render_task_panel(tasks: List[TaskStatus]) -> Panel:
@@ -68,7 +73,7 @@ def render_task_panel(tasks: List[TaskStatus]) -> Panel:
             f"[dim]{target}[/dim]"
         )
     
-    summary = task_manager.get_summary()
+    summary = task_get_summary()
     summary_text = (
         f"[green]✓ {summary['SUCCESS']}[/green] | "
         f"[yellow]● {summary['RUNNING']}[/yellow] | "
@@ -99,7 +104,7 @@ def show_task_panel_live(duration: Optional[float] = None) -> None:
     start_time = time_module.time()
     
     def get_renderable():
-        active_tasks = task_manager.get_active_tasks()
+        active_tasks = task_get_active_tasks()
         return render_task_panel(active_tasks)
     
     with Live(get_renderable(), refresh_per_second=2, console=console) as live:
@@ -107,7 +112,7 @@ def show_task_panel_live(duration: Optional[float] = None) -> None:
             if duration and (time_module.time() - start_time) >= duration:
                 break
             
-            active_tasks = task_manager.get_active_tasks()
+            active_tasks = task_get_active_tasks()
             if not active_tasks and duration:
                 # Si no hay tareas y hay duración, esperar un poco antes de salir
                 time_module.sleep(0.5)
@@ -124,9 +129,9 @@ def get_task_panel() -> Panel:
     Returns:
         Panel: Panel de tareas actualizado
     """
-    all_tasks = task_manager.get_all_tasks()
+    all_tasks = task_get_all_tasks()
     # Mostrar solo las últimas 10 tareas (activas primero)
-    active_tasks = task_manager.get_active_tasks()
+    active_tasks = task_get_active_tasks()
     completed_tasks = [t for t in all_tasks if t.status != "RUNNING"]
     
     # Ordenar: activas primero, luego completadas por tiempo (más recientes primero)

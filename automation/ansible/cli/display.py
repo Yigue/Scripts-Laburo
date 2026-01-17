@@ -31,59 +31,14 @@ def clear_screen():
 
 
 def show_banner():
-    """Muestra el banner ASCII de la aplicación."""
-    banner = """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-║   ██╗████████╗     ██████╗ ██████╗ ███████╗     ██████╗██╗     ██╗          ║
-║   ██║╚══██╔══╝    ██╔═══██╗██╔══██╗██╔════╝    ██╔════╝██║     ██║          ║
-║   ██║   ██║       ██║   ██║██████╔╝███████╗    ██║     ██║     ██║          ║
-║   ██║   ██║       ██║   ██║██╔═══╝ ╚════██║    ██║     ██║     ██║          ║
-║   ██║   ██║       ╚██████╔╝██║     ███████║    ╚██████╗███████╗██║          ║
-║   ╚═╝   ╚═╝        ╚═════╝ ╚═╝     ╚══════╝     ╚═════╝╚══════╝╚═╝          ║
-║                                                                              ║
-║                    Automatización IT con Ansible                             ║
-║                         v2.0 - Menú Expandido                                ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-    """
-    console.print(banner, style="cyan")
+    """Muestra el banner minimalista."""
+    console.print("[cyan bold]IT-OPS CLI[/cyan bold] [dim]| Automatización IT con Ansible[/dim]\n")
 
 
 def show_menu_summary():
-    """
-    Muestra un resumen de las categorías disponibles en una tabla.
-    
-    Útil para dar una vista general del menú antes de que el usuario
-    comience a navegar por las opciones.
-    """
-    table = Table(
-        title="📋 Categorías Disponibles",
-        show_header=True,
-        header_style="bold cyan",
-        box=box.ROUNDED
-    )
-    table.add_column("Categoría", style="cyan", width=25)
-    table.add_column("Opciones", style="green", justify="center", width=10)
-    table.add_column("Descripción", style="white")
-    
-    descriptions = {
-        "A": "Gestión de Active Directory: LAPS, BitLocker, usuarios",
-        "H": "Specs, configuración, optimización, drivers, batería, disco",
-        "R": "Wi-Fi, reparación de red, speedtest, bandwidth",
-        "S": "Office, OneDrive, gestión de aplicaciones",
-        "I": "Gestión de spooler e impresoras, Zebra",
-        "C": "Consola PowerShell interactiva remota",
-    }
-    
-    for cat in MENU_CATEGORIES:
-        table.add_row(
-            f"{cat.icon} [{cat.key}] {cat.name}",
-            str(len(cat.options)),
-            descriptions.get(cat.key, "")
-        )
-    
-    console.print(table)
-    console.print("")
+    """Muestra un resumen minimalista de las categorías disponibles."""
+    # Versión minimalista - solo mostrar en una línea simple si es necesario
+    pass  # Se omite para diseño minimalista
 
 
 def mostrar_host_snapshot(snapshot: HostSnapshot):

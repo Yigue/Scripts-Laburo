@@ -31,6 +31,7 @@ os.chdir(BASE_DIR)
 
 # Crear directorios necesarios
 (BASE_DIR / "logs").mkdir(exist_ok=True)
+(BASE_DIR / "reports").mkdir(exist_ok=True)
 (BASE_DIR / ".cache").mkdir(exist_ok=True)
 
 # Configurar logging
@@ -41,8 +42,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Consola Rich global
-console = Console(record=True)
+# Consola Rich global con soporte para grabación HTML
+console = Console(record=True, width=120)
 
 # Estilo personalizado para Questionary
 CUSTOM_STYLE = Style([

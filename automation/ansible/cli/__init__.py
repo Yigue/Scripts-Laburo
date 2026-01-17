@@ -28,7 +28,18 @@ from .display import (
     mostrar_host_snapshot, mostrar_updates_resultado,
     mostrar_bitlocker_status_tabla, mostrar_ad_info,
     mostrar_dashboard_ejecucion, mostrar_audit_groups_resultado,
-    mostrar_auditoria_salud, guardar_reporte
+    mostrar_auditoria_salud, guardar_reporte, mostrar_historial_sesion
 )
-from .prompts import solicitar_hostname, solicitar_vault_password, interactive_confirm
+from .prompts import solicitar_hostname, solicitar_vault_password, interactive_confirm, solicitar_targets
 from .menus import mostrar_menu_categorias, mostrar_menu_opciones, ejecutar_opcion
+from .history import add_entry as history_add_entry, get_entries as history_get_entries
+from .task_manager import (
+    add_task as task_add_task,
+    update_task as task_update_task,
+    get_active_tasks as task_get_active_tasks,
+    get_all_tasks as task_get_all_tasks,
+    get_task as task_get_task,
+    get_summary as task_get_summary,
+    TaskStatus
+)
+from .task_panel import get_task_panel, render_task_panel

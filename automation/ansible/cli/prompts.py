@@ -10,7 +10,7 @@ Contiene:
 - interactive_confirm(): Confirmación rápida sí/no
 """
 
-from typing import Optional
+from typing import Optional, List
 import questionary
 
 from .config import console, CUSTOM_STYLE
@@ -73,5 +73,74 @@ def interactive_confirm(message: str, default: bool = True) -> bool:
         default=default
     ).ask()
     
-    # Si es None (cancelado), retornar False
     return result if result is not None else False
+
+
+def solicitar_targets() -> Optional[List[str]]:
+    """
+    Solicita uno o más hostnames al usuario.
+    
+    Returns:
+        List[str]: Lista de hostnames (en mayúsculas) o None si cancela
+    """
+    # Preguntar si quiere ejecutar en uno o múltiples equipos
+    mode_choice = questionary.select(
+        "¿En cuántos equipos deseas ejecutar?",
+        choices=[
+            "Un solo equipo",
+            "Múltiples equipos"
+        ],
+        style=CUSTOM_STYLE,
+        use_shortcuts=True
+    ).ask()
+    
+    if mode_choice is None:
+        return None
+    
+    if "Un solo equipo" in mode_choice:
+        # Solo un equipo
+        hostname = solicitar_hostname()
+        return [hostname] if hostname else None
+    else:
+        # Múltiples equipos
+        console.print("\n[dim]Ingresa los hostnames separados por comas, espacios o uno por línea.[/dim]")
+        console.print("[dim]Presiona Enter en una línea vacía para terminar.[/dim]\n")
+        
+        targets_input = questionary.text(
+            "Hostnames (separados por comas o espacios):",
+            style=CUSTOM_STYLE
+        ).ask()
+        
+        if targets_input is None or not targets_input.strip():
+            return None
+        
+        # Parsear hostnames (soporta comas, espacios, y múltiples líneas)
+        targets = []
+        for line in targets_input.split('\n'):
+            # Separar por comas y espacios
+            line_targets = [t.strip().upper() for t in line.replace(',', ' ').split() if t.strip()]
+            targets.extend(line_targets)
+        
+        # Eliminar duplicados manteniendo orden
+        seen = set()
+        unique_targets = []
+        for target in targets:
+            if target not in seen:
+                seen.add(target)
+                unique_targets.append(target)
+        
+        if not unique_targets:
+            console.print("[yellow]No se ingresaron hostnames válidos[/yellow]")
+            return None
+        
+        console.print(f"\n[green]Se ejecutará en {len(unique_targets)} equipo(s):[/green]")
+        for target in unique_targets:
+            console.print(f"  • {target}")
+        
+        confirm = questionary.confirm(
+            "¿Continuar?",
+            style=CUSTOM_STYLE,
+            default=True
+        ).ask()
+        
+        return unique_targets if confirm else None
