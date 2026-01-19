@@ -39,21 +39,52 @@ def solicitar_vault_password() -> Optional[str]:
     """
     Solicita la master password del Ansible Vault.
     
+    Si existe el archivo .vault_pass, ofrece usarlo automáticamente.
+    
     Returns:
         str: La password ingresada o None si cancela/omite
     """
-    console.print("\n[dim]Si usas Ansible Vault, ingresa la master password.[/dim]")
-    console.print("[dim]Presiona Enter para omitir (modo desarrollo).[/dim]\n")
+    from pathlib import Path
+    from .config import BASE_DIR
     
-    password = questionary.password(
-        "Vault Password (opcional):",
-        style=CUSTOM_STYLE
-    ).ask()
+    vault_pass_file = BASE_DIR / ".vault_pass"
     
-    if password is None or password.strip() == "":
-        return None
+    # Si existe .vault_pass, ofrecer usarlo automáticamente
+    if vault_pass_file.exists():
+        console.print("\n[green]✓ Archivo .vault_pass detectado[/green]")
+        console.print("[dim]Presiona Enter para usar la contraseña guardada, o escribe una nueva.[/dim]\n")
+        
+        password = questionary.password(
+            "Vault Password (Enter = usar .vault_pass):",
+            style=CUSTOM_STYLE
+        ).ask()
+        
+        if password is None or password.strip() == "":
+            # Usar la contraseña del archivo
+            try:
+                vault_password = vault_pass_file.read_text().strip()
+                if vault_password:
+                    console.print("[green]✓ Usando contraseña de .vault_pass[/green]\n")
+                    return vault_password
+            except Exception as e:
+                console.print(f"[yellow]⚠ No se pudo leer .vault_pass: {e}[/yellow]")
+        else:
+            return password
+    else:
+        console.print("\n[dim]Si usas Ansible Vault, ingresa la master password.[/dim]")
+        console.print("[dim]Presiona Enter para omitir (modo desarrollo).[/dim]\n")
+        
+        password = questionary.password(
+            "Vault Password (opcional):",
+            style=CUSTOM_STYLE
+        ).ask()
+        
+        if password is None or password.strip() == "":
+            return None
+        
+        return password
     
-    return password
+    return None
 
 
 def interactive_confirm(message: str, default: bool = True) -> bool:

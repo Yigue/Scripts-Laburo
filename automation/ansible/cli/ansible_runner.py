@@ -24,6 +24,7 @@ import socket
 import tempfile
 import time
 import questionary
+import platform
 from typing import Optional, Dict, Tuple
 
 from rich.panel import Panel
@@ -48,6 +49,148 @@ DEFAULT_WINRM_VARS = {
     "ansible_user": "{{ vault_ansible_user }}",
     "ansible_password": "{{ vault_ansible_password }}",
 }
+
+
+# ============================================================================
+# FUNCIONES AUXILIARES
+# ============================================================================
+def _decrypt_vault_vars(vault_password: Optional[str] = None) -> Dict[str, str]:
+    """
+    Descifra el archivo vault.yml y retorna un diccionario con las variables.
+    
+    Args:
+        vault_password: Password del vault (opcional)
+        
+    Returns:
+        Dict con las variables del vault (vault_ansible_user, vault_ansible_password, etc.)
+        o diccionario vacío si no se puede descifrar
+    """
+    if not vault_password:
+        return {}
+    
+    vault_file = BASE_DIR / "inventory" / "group_vars" / "all" / "vault.yml"
+    if not vault_file.exists():
+        logger.warning("Archivo vault.yml no encontrado")
+        return {}
+    
+    try:
+        # Usar ansible-vault view para leer contenido descifrado
+        vault_pass_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        vault_pass_file.write(vault_password)
+        vault_pass_file.close()
+        
+        cmd = [
+            "ansible-vault",
+            "view",
+            "--vault-password-file", vault_pass_file.name,
+            str(vault_file)
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=str(BASE_DIR)
+        )
+        
+        # Limpiar archivo temporal de password
+        if os.path.exists(vault_pass_file.name):
+            os.unlink(vault_pass_file.name)
+        
+        if result.returncode != 0:
+            logger.warning(f"No se pudo descifrar vault: {result.stderr}")
+            #region agent log
+            log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+            try:
+                with open(log_path, "a") as f:
+                    import json
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:101", "message": "Error descifrando vault", "data": {"returncode": result.returncode, "stderr": result.stderr[:200]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            #endregion
+            return {}
+        
+        # Verificar si el output está vacío o solo tiene whitespace
+        if not result.stdout or not result.stdout.strip():
+            logger.warning("Vault descifrado está vacío - no hay variables definidas")
+            #region agent log
+            log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+            try:
+                with open(log_path, "a") as f:
+                    import json
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:105", "message": "Vault vacío", "data": {"stdout_length": len(result.stdout) if result.stdout else 0}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            #endregion
+            return {}
+        
+        # Parsear YAML del output
+        import yaml
+        try:
+            vault_vars = yaml.safe_load(result.stdout)
+            #region agent log
+            log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+            try:
+                with open(log_path, "a") as f:
+                    import json
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:115", "message": "Vault descifrado", "data": {"has_vars": vault_vars is not None, "keys": list(vault_vars.keys()) if vault_vars else [], "has_user": "vault_ansible_user" in (vault_vars or {}), "has_password": "vault_ansible_password" in (vault_vars or {}), "stdout_preview": result.stdout[:200]}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            #endregion
+            if vault_vars and isinstance(vault_vars, dict):
+                return vault_vars
+        except Exception as e:
+            logger.warning(f"Error parseando vault YAML: {e}")
+            #region agent log
+            log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+            try:
+                with open(log_path, "a") as f:
+                    import json
+                    f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:119", "message": "Error parseando vault YAML", "data": {"error": str(e), "stdout_preview": result.stdout[:200] if result.stdout else None}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+            except: pass
+            #endregion
+            return {}
+            
+    except Exception as e:
+        logger.error(f"Error descifrando vault: {e}")
+        #region agent log
+        log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+        try:
+            with open(log_path, "a") as f:
+                import json
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:115", "message": "Excepción en descifrado vault", "data": {"error_type": type(e).__name__, "error_msg": str(e)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
+        return {}
+    
+    return {}
+
+
+def _ensure_cache_setup():
+    """
+    Prepara el directorio .cache y asegura que group_vars esté accessible.
+    
+    Esto es necesario porque al usar un inventario temporal en .cache/,
+    Ansible busca group_vars en .cache/group_vars por defecto.
+    """
+    cache_dir = BASE_DIR / ".cache"
+    cache_dir.mkdir(exist_ok=True)
+    
+    # Symlink de group_vars para que cargue variables del vault/inventario
+    src_vars = BASE_DIR / "inventory" / "group_vars"
+    dst_vars = cache_dir / "group_vars"
+    
+    if src_vars.exists():
+        try:
+            # Si no existe ni es link, crear
+            if not dst_vars.exists() and not dst_vars.is_symlink():
+                dst_vars.symlink_to(src_vars)
+            # Si es link pero está roto (exists() -> False), recrear
+            elif dst_vars.is_symlink() and not dst_vars.exists():
+                dst_vars.unlink()
+                dst_vars.symlink_to(src_vars)
+        except Exception as e:
+            logger.warning(f"No se pudo configurar symlink de group_vars: {e}")
+            
+    return cache_dir
 
 
 # ============================================================================
@@ -168,7 +311,11 @@ def validate_hostname(hostname: str) -> bool:
     return True
 
 
-def _build_dynamic_inventory(hostname: str, resolved_ip: Optional[str] = None) -> str:
+def _build_dynamic_inventory(
+    hostname: str, 
+    resolved_ip: Optional[str] = None,
+    vault_vars: Optional[Dict[str, str]] = None
+) -> str:
     """
     Construye un inventario dinámico en formato INI para un host.
     
@@ -181,6 +328,7 @@ def _build_dynamic_inventory(hostname: str, resolved_ip: Optional[str] = None) -
     Args:
         hostname: El hostname o IP del equipo
         resolved_ip: IP resuelta (opcional, para evitar problemas DNS)
+        vault_vars: Variables del vault descifradas (opcional)
         
     Returns:
         str: Contenido del inventario en formato INI
@@ -221,10 +369,50 @@ def _build_dynamic_inventory(hostname: str, resolved_ip: Optional[str] = None) -
     if resolved_ip and resolved_ip != hostname:
         lines.append(f"ansible_host={resolved_ip}")
     
-    for key, value in DEFAULT_WINRM_VARS.items():
-        lines.append(f"{key}={value}")
+    # Usar variables del vault si están disponibles, sino usar referencias {{ }} 
+    # para que Ansible las cargue desde group_vars/all/vault.yml cuando se proporcione --vault-password-file
+    vault_vars = vault_vars or {}
+    #region agent log
+    log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+    try:
+        with open(log_path, "a") as f:
+            import json
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:357", "message": "Construyendo inventario dinámico", "data": {"has_vault_vars": bool(vault_vars), "vault_keys": list(vault_vars.keys()) if vault_vars else [], "has_user": "vault_ansible_user" in vault_vars, "has_password": "vault_ansible_password" in vault_vars}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    #endregion
     
-    return "\n".join(lines)
+    has_user = "vault_ansible_user" in vault_vars
+    has_password = "vault_ansible_password" in vault_vars
+    
+    for key, default_value in DEFAULT_WINRM_VARS.items():
+        # Para ansible_user y ansible_password:
+        # 1. Si tenemos valores del vault descifrados, usar los valores directamente
+        # 2. Si no, usar referencias {{ }} para que Ansible las cargue desde group_vars/all/vault.yml
+        if key == "ansible_user":
+            if has_user:
+                lines.append(f"ansible_user={vault_vars['vault_ansible_user']}")
+            else:
+                # Usar referencia para que Ansible la cargue del vault
+                lines.append(f"ansible_user={default_value}")
+        elif key == "ansible_password":
+            if has_password:
+                lines.append(f"ansible_password={vault_vars['vault_ansible_password']}")
+            else:
+                # Usar referencia para que Ansible la cargue del vault
+                lines.append(f"ansible_password={default_value}")
+        else:
+            # Para las demás variables, siempre agregar
+            lines.append(f"{key}={default_value}")
+    
+    inventory_content = "\n".join(lines)
+    #region agent log
+    try:
+        with open(log_path, "a") as f:
+            import json
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:338", "message": "Inventario dinámico generado", "data": {"content": inventory_content}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    #endregion
+    return inventory_content
 
 
 def obtener_host_snapshot(hostname: str, vault_password: Optional[str] = None) -> Optional[HostSnapshot]:
@@ -239,6 +427,11 @@ def obtener_host_snapshot(hostname: str, vault_password: Optional[str] = None) -
     if vault_password:
         env["ANSIBLE_VAULT_PASSWORD"] = vault_password
 
+    # Descifrar variables del vault si hay password
+    vault_vars = {}
+    if vault_password:
+        vault_vars = _decrypt_vault_vars(vault_password)
+
     # PowerShell para obtener Snapshot rápido
     ps_script = (
         "$user = (Get-CimInstance Win32_ComputerSystem).UserName; "
@@ -249,12 +442,10 @@ def obtener_host_snapshot(hostname: str, vault_password: Optional[str] = None) -
         "@{ user=$user; os=$os; disk_free=$free; disk_total=$total } | ConvertTo-Json"
     )
 
-    inventory_content = _build_dynamic_inventory(hostname)
-    # Crear inventario en .cache/ para que Ansible encuentre group_vars/
-    cache_dir = BASE_DIR / ".cache"
-    cache_dir.mkdir(exist_ok=True)
+    inventory_content = _build_dynamic_inventory(hostname, vault_vars=vault_vars)
+    # Crear inventario en inventory/ para que Ansible encuentre group_vars/
     inventory_file = tempfile.NamedTemporaryFile(
-        mode='w', suffix='.ini', dir=str(cache_dir), delete=False
+        mode='w', suffix='.ini', dir=str(BASE_DIR / "inventory"), delete=False
     )
     inventory_file.write(inventory_content)
     inventory_file.close()
@@ -325,12 +516,15 @@ def check_online(hostname: str, vault_password: Optional[str] = None) -> bool:
     if vault_password:
         env["ANSIBLE_VAULT_PASSWORD"] = vault_password
     
-    # Crear inventario dinámico temporal en .cache/
-    inventory_content = _build_dynamic_inventory(hostname)
-    cache_dir = BASE_DIR / ".cache"
-    cache_dir.mkdir(exist_ok=True)
+    # Descifrar variables del vault si hay password
+    vault_vars = {}
+    if vault_password:
+        vault_vars = _decrypt_vault_vars(vault_password)
+    
+    # Crear inventario dinámico temporal en inventory/
+    inventory_content = _build_dynamic_inventory(hostname, vault_vars=vault_vars)
     inventory_file = tempfile.NamedTemporaryFile(
-        mode='w', suffix='.ini', dir=str(cache_dir), delete=False
+        mode='w', suffix='.ini', dir=str(BASE_DIR / "inventory"), delete=False
     )
     inventory_file.write(inventory_content)
     inventory_file.close()
@@ -341,6 +535,14 @@ def check_online(hostname: str, vault_password: Optional[str] = None) -> bool:
         hostname,
         "-m", "win_ping"
     ]
+    
+    # Manejo de Vault
+    vault_file = None
+    if vault_password:
+        vault_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        vault_file.write(vault_password)
+        vault_file.close()
+        cmd.extend(["--vault-password-file", vault_file.name])
     
     try:
         with Progress(
@@ -427,6 +629,14 @@ def ejecutar_playbook(
     show_progress: bool = True,
     interactive: bool = False
 ) -> ExecutionResult:
+    #region agent log
+    import json
+    log_path = "/home/korg/Scripts-Laburo/automation/ansible/.cursor/debug.log"
+    try:
+        with open(log_path, "a") as f:
+            f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "cli/ansible_runner.py:458", "message": "ejecutar_playbook INICIO", "data": {"hostname": hostname, "playbook_path": playbook_path, "has_vault": vault_password is not None, "has_extra_vars": bool(extra_vars), "show_progress": show_progress, "interactive": interactive}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+    except: pass
+    #endregion
     """
     Ejecuta un playbook de Ansible con inventario dinámico.
     
@@ -442,10 +652,22 @@ def ejecutar_playbook(
         ExecutionResult: Objeto con los resultados de la ejecución
     """
     if not validate_hostname(hostname):
+        #region agent log
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "F", "location": "cli/ansible_runner.py:480", "message": "Hostname inválido", "data": {"hostname": hostname}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
         return ExecutionResult(False, None, "", "Hostname inválido", 1)
     
     full_playbook_path = BASE_DIR / "playbooks" / playbook_path
     if not full_playbook_path.exists():
+        #region agent log
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "cli/ansible_runner.py:485", "message": "Playbook no encontrado", "data": {"full_path": str(full_playbook_path), "playbook_path": playbook_path}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
         logger.error(f"Playbook no encontrado: {full_playbook_path}")
         return ExecutionResult(False, None, "", f"Playbook no encontrado: {playbook_path}", 1)
 
@@ -455,12 +677,25 @@ def ejecutar_playbook(
     if not interactive:
         env["ANSIBLE_STDOUT_CALLBACK"] = "json"
     
-    # Crear inventario dinámico temporal en .cache/
-    inventory_content = _build_dynamic_inventory(hostname)
-    cache_dir = BASE_DIR / ".cache"
-    cache_dir.mkdir(exist_ok=True)
+    # Asegurar que group_vars esté disponible para el inventario temporal
+    # Esto permite que Ansible cargue las variables del vault automáticamente
+    inventory_dir = BASE_DIR / "inventory"
+    
+    # Descifrar variables del vault si hay password
+    vault_vars = {}
+    if vault_password:
+        vault_vars = _decrypt_vault_vars(vault_password)
+        #region agent log
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "E", "location": "cli/ansible_runner.py:524", "message": "Vault variables descifradas", "data": {"has_user": "vault_ansible_user" in vault_vars, "has_password": "vault_ansible_password" in vault_vars, "keys": list(vault_vars.keys())}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
+    
+    # Crear inventario dinámico temporal en inventory/ (para que Ansible encuentre group_vars/)
+    inventory_content = _build_dynamic_inventory(hostname, vault_vars=vault_vars)
     inventory_file = tempfile.NamedTemporaryFile(
-        mode='w', suffix='.ini', dir=str(cache_dir), delete=False
+        mode='w', suffix='.ini', dir=str(BASE_DIR / "inventory"), delete=False
     )
     inventory_file.write(inventory_content)
     inventory_file.close()
@@ -503,17 +738,13 @@ def ejecutar_playbook(
                 duration=duration
             )
 
-        # Modo normal con progreso
+        # Modo normal con progreso (simplificado para evitar múltiples mensajes)
         if show_progress:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                console=console,
-                transient=True
-            ) as progress:
-                progress.add_task(f"[cyan]Ejecutando {playbook_path} en {hostname}...", total=None)
-                result_proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=1200, cwd=str(BASE_DIR))
+            # Mostrar mensaje simple una sola vez
+            console.print(f"[cyan]🔄 Ejecutando {playbook_path} en {hostname}...[/cyan]")
+            result_proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=1200, cwd=str(BASE_DIR))
+            # Limpiar la línea anterior
+            console.print(f"[dim]✓ Completado[/dim]")
         else:
             result_proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=1200, cwd=str(BASE_DIR))
 
@@ -541,7 +772,7 @@ def ejecutar_playbook(
                 if result_proc.returncode != 0:
                     logger.error(f"Error de ejecución sin JSON válido. Return code: {result_proc.returncode}")
 
-        return ExecutionResult(
+        result_obj = ExecutionResult(
             success=result_proc.returncode == 0,
             data=json_data,
             stdout=result_proc.stdout,
@@ -549,14 +780,33 @@ def ejecutar_playbook(
             returncode=result_proc.returncode,
             duration=duration
         )
+        #region agent log
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "cli/ansible_runner.py:584", "message": "ejecutar_playbook RESULTADO", "data": {"success": result_obj.success, "returncode": result_obj.returncode, "has_stderr": bool(result_obj.stderr), "stderr_preview": result_obj.stderr[:200] if result_obj.stderr else None, "stdout_preview": result_obj.stdout[:200] if result_obj.stdout else None}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
+        return result_obj
 
     except subprocess.TimeoutExpired:
         duration = time.time() - start_time
         logger.error(f"Timeout en playbook: {playbook_path}")
+        #region agent log
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "cli/ansible_runner.py:587", "message": "Timeout en ejecutar_playbook", "data": {"duration": duration}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
         return ExecutionResult(False, None, "", "Timeout de ejecución (20 min)", 1, duration)
     except Exception as e:
         duration = time.time() - start_time
         logger.error(f"Error inesperado ejecutando playbook: {e}")
+        #region agent log
+        try:
+            with open(log_path, "a") as f:
+                f.write(json.dumps({"sessionId": "debug-session", "runId": "run1", "hypothesisId": "B", "location": "cli/ansible_runner.py:593", "message": "Excepción en ejecutar_playbook", "data": {"error_type": type(e).__name__, "error_msg": str(e)}, "timestamp": int(__import__("time").time() * 1000)}) + "\n")
+        except: pass
+        #endregion
         return ExecutionResult(False, None, "", str(e), 1, duration)
     finally:
         # Limpiar archivos temporales
@@ -564,6 +814,172 @@ def ejecutar_playbook(
             os.unlink(inventory_file.name)
         if vault_file and os.path.exists(vault_file.name):
             os.unlink(vault_file.name)
+
+
+def ejecutar_playbook_nueva_ventana(
+    hostname: str,
+    playbook_path: str,
+    vault_password: Optional[str] = None,
+    extra_vars: Optional[Dict[str, str]] = None
+) -> ExecutionResult:
+    """
+    Ejecuta un playbook en una nueva ventana de terminal para permitir interacción.
+    
+    Abre una nueva terminal y ejecuta el playbook en modo interactivo.
+    Funciona en Linux/WSL detectando el entorno de escritorio disponible.
+    
+    Args:
+        hostname: Hostname del equipo
+        playbook_path: Ruta al playbook relativa a playbooks/
+        vault_password: Password del vault (opcional)
+        extra_vars: Variables extra para el playbook
+        
+    Returns:
+        ExecutionResult: Resultado de la ejecución (exitoso inmediatamente, la ventana sigue abierta)
+    """
+    full_playbook_path = BASE_DIR / "playbooks" / playbook_path
+    if not full_playbook_path.exists():
+        logger.error(f"Playbook no encontrado: {full_playbook_path}")
+        return ExecutionResult(False, None, "", f"Playbook no encontrado: {playbook_path}", 1)
+    
+    # Descifrar variables del vault si hay password
+    vault_vars = {}
+    if vault_password:
+        vault_vars = _decrypt_vault_vars(vault_password)
+    
+    # Crear inventario dinámico temporal
+    inventory_content = _build_dynamic_inventory(hostname, vault_vars=vault_vars)
+    inventory_file = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.ini', dir=str(BASE_DIR / "inventory"), delete=False
+    )
+    inventory_file.write(inventory_content)
+    inventory_file.close()
+    
+    # Construir comando base
+    cmd = [
+        "ansible-playbook",
+        "-i", inventory_file.name,
+        str(full_playbook_path),
+        "--extra-vars", f"target_host={hostname}"
+    ]
+    
+    # Agregar variables extra
+    if extra_vars:
+        for key, value in extra_vars.items():
+            # Escapar correctamente los valores para evitar problemas con caracteres especiales
+            escaped_value = json.dumps(str(value))  # Usar JSON para escapar correctamente
+            cmd.extend(["--extra-vars", f"{key}={escaped_value}"])
+    
+    # Manejo de Vault
+    if vault_password:
+        vault_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        vault_file.write(vault_password)
+        vault_file.close()
+        cmd.extend(["--vault-password-file", vault_file.name])
+    
+    # Detectar entorno de escritorio y construir comando para nueva ventana
+    display_env = os.environ.get("DISPLAY")
+    wsl_distro = os.environ.get("WSL_DISTRO_NAME")
+    
+    terminal_cmd = []
+    
+    # Detectar si estamos en WSL de forma segura
+    is_wsl = False
+    try:
+        if hasattr(os, 'uname'):
+            # Linux/WSL
+            uname_info = os.uname()
+            is_wsl = "microsoft" in uname_info.release.lower() if hasattr(uname_info, 'release') else False
+        elif platform.system() == "Linux":
+            # Intentar detectar WSL de otra forma
+            try:
+                with open("/proc/version", "r") as f:
+                    version_info = f.read().lower()
+                    is_wsl = "microsoft" in version_info or "wsl" in version_info
+            except:
+                pass
+    except:
+        pass
+    
+    if wsl_distro or is_wsl:
+        # WSL - usar wsl.exe para abrir terminal de Windows
+        # O intentar con terminales de Linux si hay DISPLAY
+        if display_env:
+            # Hay X11, usar terminal de Linux
+            if shutil.which("gnome-terminal"):
+                terminal_cmd = [
+                    "gnome-terminal", "--",
+                    "bash", "-c", f"cd {BASE_DIR} && {' '.join(cmd)}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+                ]
+            elif shutil.which("xterm"):
+                terminal_cmd = [
+                    "xterm", "-e", "bash", "-c",
+                    f"cd {BASE_DIR} && {' '.join(cmd)}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+                ]
+            elif shutil.which("konsole"):
+                terminal_cmd = [
+                    "konsole", "-e", "bash", "-c",
+                    f"cd {BASE_DIR} && {' '.join(cmd)}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+                ]
+            else:
+                # Fallback: usar tmux o screen si están disponibles
+                logger.warning("No se encontró terminal gráfica, ejecutando en modo normal")
+                return ejecutar_playbook(hostname, playbook_path, vault_password, extra_vars, show_progress=True, interactive=True)
+        else:
+            # Sin DISPLAY, intentar usar cmd.exe de Windows via wsl.exe
+            # Convertir comando a formato Windows
+            cmd_str = " ".join([f'"{c}"' if " " in c else c for c in cmd])
+            terminal_cmd = [
+                "wsl.exe", "--", "bash", "-c",
+                f"cd {BASE_DIR} && {cmd_str}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+            ]
+    else:
+        # Linux nativo
+        if shutil.which("gnome-terminal"):
+            terminal_cmd = [
+                "gnome-terminal", "--",
+                "bash", "-c", f"cd {BASE_DIR} && {' '.join(cmd)}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+            ]
+        elif shutil.which("xterm"):
+            terminal_cmd = [
+                "xterm", "-e", "bash", "-c",
+                f"cd {BASE_DIR} && {' '.join(cmd)}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+            ]
+        elif shutil.which("konsole"):
+            terminal_cmd = [
+                "konsole", "-e", "bash", "-c",
+                f"cd {BASE_DIR} && {' '.join(cmd)}; echo ''; echo 'Presiona Enter para cerrar...'; read"
+            ]
+        else:
+            logger.warning("No se encontró terminal gráfica, ejecutando en modo normal")
+            return ejecutar_playbook(hostname, playbook_path, vault_password, extra_vars, show_progress=True, interactive=True)
+    
+    try:
+        # Ejecutar en nueva ventana (no bloquear)
+        subprocess.Popen(
+            terminal_cmd,
+            cwd=str(BASE_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        # Retornar inmediatamente (la ventana sigue abierta)
+        return ExecutionResult(
+            success=True,
+            data=None,
+            stdout="Ventana de consola abierta",
+            stderr="",
+            returncode=0
+        )
+    except Exception as e:
+        logger.error(f"Error abriendo nueva ventana: {e}")
+        # Fallback: ejecutar en modo interactivo normal
+        console.print(f"[yellow]⚠ No se pudo abrir nueva ventana, ejecutando en modo normal...[/yellow]")
+        return ejecutar_playbook(hostname, playbook_path, vault_password, extra_vars, show_progress=True, interactive=True)
+    finally:
+        # Nota: No eliminamos inventory_file ni vault_file aquí porque la nueva ventana los necesita
+        # Se limpiarán cuando termine la ejecución en la nueva ventana
+        pass
 
 
 def repair_winrm_local():

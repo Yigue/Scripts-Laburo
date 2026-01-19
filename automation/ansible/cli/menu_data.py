@@ -54,6 +54,37 @@ MENU_CATEGORIES = [
                 "Muestra los grupos de seguridad en los que está el equipo",
                 action_type="read-only"
             ),
+            MenuOption(
+                "A7", "Auditoría de usuarios inactivos", "admin/audit_inactive.yml",
+                "Lista usuarios de AD que no han iniciado sesión recientemente",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "A8", "Exportar reporte de AD", "admin/export_ad_report.yml",
+                "Genera un reporte completo de equipos en Active Directory",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "A9", "Obtener miembros de grupo AD", "admin/get_group_members.yml",
+                "Lista todos los miembros de un grupo de seguridad de AD",
+                requires_input=True, input_prompt="Nombre del grupo AD", input_var_name="group_name",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "A10", "Listar computadoras en AD", "admin/list_ad_computers.yml",
+                "Lista todas las computadoras registradas en Active Directory",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "A11", "Listar usuarios en AD", "admin/list_ad_users.yml",
+                "Lista todos los usuarios registrados en Active Directory",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "A12", "Validar atributos de AD", "admin/validate_attributes.yml",
+                "Verifica que los atributos requeridos estén presentes en objetos AD",
+                action_type="read-only"
+            ),
         ]
     ),
     # =========================================================================
@@ -114,6 +145,31 @@ MENU_CATEGORIES = [
                 "Ejecuta un diagnóstico completo: Specs, Batería, SMART y Updates",
                 action_type="read-only"
             ),
+            MenuOption(
+                "H11", "Limpiar caché del sistema", "hardware/cleanup_cache.yml",
+                "Elimina archivos temporales y caché del sistema",
+                action_type="modify"
+            ),
+            MenuOption(
+                "H12", "Limpiar perfiles de usuarios antiguos", "hardware/cleanup_old_users.yml",
+                "Elimina perfiles de usuario que no se han usado en mucho tiempo",
+                action_type="modify"
+            ),
+            MenuOption(
+                "H13", "Recopilar logs del sistema", "hardware/collect_logs.yml",
+                "Recopila y exporta logs de eventos de Windows",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "H14", "Test de rendimiento", "hardware/performance_test.yml",
+                "Ejecuta pruebas de rendimiento del sistema",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "H15", "Inventario unificado", "hardware/unified_inventory.yml",
+                "Genera un inventario completo del hardware y software",
+                action_type="read-only"
+            ),
         ]
     ),
     # =========================================================================
@@ -148,6 +204,11 @@ MENU_CATEGORIES = [
                 "R5", "Ver consumo de ancho de banda", "network/bandwidth_usage.yml",
                 "Estadísticas de uso de red en tiempo real",
                 action_type="read-only"
+            ),
+            MenuOption(
+                "R6", "Resetear adaptador de red", "network/reset_adapter.yml",
+                "Reinicia el adaptador de red especificado",
+                action_type="modify"
             ),
         ]
     ),
@@ -188,6 +249,31 @@ MENU_CATEGORIES = [
                 "S6", "Limpieza profunda de temporales", "software/deep_clean.yml",
                 "Borra caché de Teams, Outlook y carpetas Temp del sistema",
                 action_type="modify"
+            ),
+            MenuOption(
+                "S7", "Detectar Shadow IT", "software/detect_shadow_it.yml",
+                "Detecta aplicaciones instaladas sin autorización",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "S8", "Instalar desde soporte", "software/install_from_support.yml",
+                "Instala software desde ruta de soporte",
+                action_type="modify"
+            ),
+            MenuOption(
+                "S9", "Listar aplicaciones detallado", "software/list_apps_detailed.yml",
+                "Lista completa de aplicaciones con detalles extendidos",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "S10", "Gestionar servicios", "software/manage_services.yml",
+                "Lista, inicia, detiene y configura servicios de Windows",
+                action_type="modify"
+            ),
+            MenuOption(
+                "S11", "Validar características de Windows", "software/validate_features.yml",
+                "Verifica características y componentes instalados de Windows",
+                action_type="read-only"
             ),
         ]
     ),
@@ -230,6 +316,115 @@ MENU_CATEGORIES = [
                 "Pega un comando PowerShell y ejecútalo remotamente",
                 requires_input=True, input_prompt="Script PowerShell a ejecutar", input_var_name="custom_script",
                 action_type="modify", can_background=False
+            ),
+        ]
+    ),
+    # =========================================================================
+    # [SC] SCCM
+    # =========================================================================
+    MenuCategory(
+        key="SC",
+        name="SCCM",
+        icon="🖥️",
+        options=[
+            MenuOption(
+                "SC1", "Auditar clientes faltantes", "sccm/audit_missing_clients.yml",
+                "Identifica equipos que no tienen el cliente SCCM instalado",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "SC2", "Forzar actualización de políticas", "sccm/force_gpupdate.yml",
+                "Fuerza la actualización de políticas de grupo en el equipo",
+                action_type="modify"
+            ),
+            MenuOption(
+                "SC3", "Estado del cliente SCCM", "sccm/get_client_status.yml",
+                "Muestra el estado del cliente SCCM y sus servicios",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "SC4", "Obtener colecciones", "sccm/get_collections.yml",
+                "Lista las colecciones de SCCM a las que pertenece el equipo",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "SC5", "Info del dispositivo en SCCM", "sccm/get_device_info.yml",
+                "Muestra información detallada del dispositivo en SCCM",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "SC6", "Listar dispositivos en SCCM", "sccm/list_devices.yml",
+                "Lista todos los dispositivos gestionados por SCCM",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "SC7", "Trigger acciones SCCM", "sccm/trigger_actions.yml",
+                "Ejecuta acciones predefinidas del cliente SCCM",
+                action_type="modify"
+            ),
+        ]
+    ),
+    # =========================================================================
+    # [WL] WLC (Wireless Controller)
+    # =========================================================================
+    MenuCategory(
+        key="WL",
+        name="WLC",
+        icon="📡",
+        options=[
+            MenuOption(
+                "WL1", "Conectar a WLC", "wlc/connect_wlc.yml",
+                "Establece conexión con el Wireless Controller",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "WL2", "Generar reporte telecomunicaciones", "wlc/generate_telecom_report.yml",
+                "Genera reporte completo de telecomunicaciones desde WLC",
+                requires_input=True, input_prompt="IP o hostname del Wireless Controller", input_var_name="wlc_host",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "WL3", "Info de cliente en WLC", "wlc/get_client_info.yml",
+                "Muestra información de un cliente conectado a la red Wi-Fi",
+                requires_input=True, input_prompt="MAC o IP del cliente", input_var_name="client_id",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "WL4", "Buscar en WLC", "wlc/search_wlc.yml",
+                "Busca dispositivos o información en el WLC",
+                requires_input=True, input_prompt="Término de búsqueda", input_var_name="search_term",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "WL5", "Mostrar clientes de AP", "wlc/show_ap_clients.yml",
+                "Lista los clientes conectados a un Access Point",
+                requires_input=True, input_prompt="Nombre del Access Point", input_var_name="ap_name",
+                action_type="read-only", requires_hostname=False
+            ),
+            MenuOption(
+                "WL6", "Listar Access Points", "wlc/show_ap_list.yml",
+                "Lista todos los Access Points gestionados por el WLC",
+                action_type="read-only", requires_hostname=False
+            ),
+        ]
+    ),
+    # =========================================================================
+    # [M] MONITORING
+    # =========================================================================
+    MenuCategory(
+        key="M",
+        name="Monitoring",
+        icon="📊",
+        options=[
+            MenuOption(
+                "M1", "Recopilar métricas", "monitoring/collect_metrics.yml",
+                "Recopila métricas de rendimiento y estado del sistema",
+                action_type="read-only"
+            ),
+            MenuOption(
+                "M2", "Health checks", "monitoring/health_checks.yml",
+                "Ejecuta verificaciones de salud del sistema",
+                action_type="read-only"
             ),
         ]
     ),
