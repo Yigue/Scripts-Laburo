@@ -16,7 +16,7 @@
 # ============================================================================
 
 - name: Gestionar Impresoras
-  hosts: "{{ target_host | default('all') }}"
+  hosts: "{{ target_host }}"
   gather_facts: no
   
   tasks:

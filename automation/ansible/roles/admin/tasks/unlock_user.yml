@@ -12,6 +12,39 @@
     msg: "Debe proporcionar el nombre de usuario con --extra-vars 'ad_username=USUARIO'"
   when: ad_username is not defined or ad_username == ""
 
+- name: Validar que domain_controller esté definido
+  fail:
+    msg: "Variable 'domain_controller' no está definida. Debe configurarse en inventory/group_vars/all/vault.yml o windows_hosts.yml"
+  when: domain_controller is not defined or domain_controller == ""
+
+- name: Verificar conectividad con Domain Controller
+  ansible.windows.win_ping:
+  delegate_to: "{{ domain_controller }}"
+  register: dc_ping
+  ignore_errors: yes
+
+- name: Fallar si DC no es accesible
+  fail:
+    msg: "No se puede conectar al Domain Controller '{{ domain_controller }}'. Verifique conectividad y credenciales."
+  when: dc_ping.ping is not defined or dc_ping.ping != "pong"
+
+- name: Verificar que el módulo ActiveDirectory esté disponible
+  ansible.windows.win_shell: |
+    $module = Get-Module -ListAvailable -Name ActiveDirectory
+    if (-not $module) {
+      Write-Output "ERROR: Módulo ActiveDirectory no encontrado. Instale RSAT-AD-PowerShell en el servidor '{{ domain_controller }}'."
+      exit 1
+    }
+    Write-Output "OK: Módulo ActiveDirectory disponible (versión $($module.Version.ToString()))"
+  delegate_to: "{{ domain_controller }}"
+  register: ad_module_check
+  changed_when: false
+
+- name: Fallar si el módulo ActiveDirectory no está disponible
+  fail:
+    msg: "{{ ad_module_check.stdout }}"
+  when: "'ERROR' in ad_module_check.stdout"
+
 - name: Obtener información del usuario en AD
   ansible.windows.win_shell: |
     try {
@@ -30,13 +63,17 @@
         passwordLastSet = if ($user.PasswordLastSet) { $user.PasswordLastSet.ToString("dd/MM/yyyy HH:mm") } else { "Nunca" }
       } | ConvertTo-Json
     } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-      @{ found = $false; error = "Usuario '{{ ad_username }}' no encontrado en AD" } | ConvertTo-Json
+      @{ found = $false; error = "Usuario '{{ ad_username }}' no encontrado en AD", error_type = "NotFound" } | ConvertTo-Json
+    } catch [System.UnauthorizedAccessException] {
+      @{ found = $false; error = "No tiene permisos para consultar AD. El usuario '{{ ansible_user | default('N/A') }}' necesita permisos de lectura en Active Directory.", error_type = "Unauthorized" } | ConvertTo-Json
+    } catch [System.Management.Automation.CommandNotFoundException] {
+      @{ found = $false; error = "El módulo ActiveDirectory no está disponible. Instale RSAT-AD-PowerShell.", error_type = "ModuleNotFound" } | ConvertTo-Json
     } catch {
-      @{ found = $false; error = $_.Exception.Message } | ConvertTo-Json
+      @{ found = $false; error = $_.Exception.Message, error_type = $_.Exception.GetType().FullName } | ConvertTo-Json
     }
   register: user_info_raw
   changed_when: false
-  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+  delegate_to: "{{ domain_controller }}"
 
 - name: Parsear información del usuario
   set_fact:
@@ -66,17 +103,33 @@
     try {
       Import-Module ActiveDirectory -ErrorAction Stop
       Unlock-ADAccount -Identity "{{ ad_username }}" -ErrorAction Stop
-      Write-Output "Usuario '{{ ad_username }}' desbloqueado exitosamente"
+      Write-Output "SUCCESS: Usuario '{{ ad_username }}' desbloqueado exitosamente"
+    } catch [System.UnauthorizedAccessException] {
+      Write-Output "ERROR: No tiene permisos para desbloquear cuentas en AD. El usuario '{{ ansible_user | default('N/A') }}' necesita permisos de escritura en Active Directory."
+      exit 1
+    } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
+      Write-Output "ERROR: Usuario '{{ ad_username }}' no encontrado en AD"
+      exit 1
     } catch {
-      Write-Output "ERROR: $($_.Exception.Message)"
+      Write-Output "ERROR: $($_.Exception.Message) (Tipo: $($_.Exception.GetType().FullName))"
+      exit 1
     }
   register: unlock_result
   when: user_info.locked | default(false)
-  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+  delegate_to: "{{ domain_controller }}"
+  failed_when: "'ERROR:' in unlock_result.stdout"
 
 - name: Informar si el usuario no estaba bloqueado
   debug:
-    msg: "El usuario '{{ ad_username }}' NO estaba bloqueado"
+    msg:
+      - "=========================================="
+      - "     USUARIO NO BLOQUEADO"
+      - "=========================================="
+      - "El usuario '{{ ad_username }}' NO estaba bloqueado"
+      - "Estado: {{ 'Habilitado' if user_info.enabled else 'Deshabilitado' }}"
+      - "Último login: {{ user_info.lastLogon }}"
+      - "Password cambiado: {{ user_info.passwordLastSet }}"
+      - "{{ '⚠️  ADVERTENCIA: Password expirado - El usuario debe cambiar su contraseña' if user_info.passwordExpired else '' }}"
   when: not (user_info.locked | default(false))
 
 - name: Verificar estado después del desbloqueo
@@ -84,13 +137,41 @@
     Import-Module ActiveDirectory
     $user = Get-ADUser -Identity "{{ ad_username }}" -Properties LockedOut
     if ($user.LockedOut) {
-      Write-Output "ADVERTENCIA: El usuario sigue bloqueado"
+      Write-Output "ADVERTENCIA: El usuario sigue bloqueado - El desbloqueo puede no haber funcionado"
     } else {
-      Write-Output "CONFIRMADO: El usuario está desbloqueado"
+      Write-Output "CONFIRMADO: El usuario está desbloqueado correctamente"
     }
   register: verify_result
   when: user_info.locked | default(false)
-  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+  delegate_to: "{{ domain_controller }}"
+
+- name: Registrar desbloqueo en logs de auditoría
+  ansible.windows.win_shell: |
+    try {
+      $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+      $logMessage = "[AUDIT] Usuario '{{ ad_username }}' desbloqueado por {{ ansible_user | default('Ansible') }} el $timestamp"
+      
+      # Intentar escribir en Event Log
+      try {
+        $sourceExists = [System.Diagnostics.EventLog]::SourceExists("Ansible-ADUnlock")
+        if (-not $sourceExists) {
+          New-EventLog -LogName Application -Source "Ansible-ADUnlock" -ErrorAction SilentlyContinue
+        }
+        Write-EventLog -LogName Application -Source "Ansible-ADUnlock" -EventID 1001 -EntryType Information -Message $logMessage -ErrorAction SilentlyContinue
+      } catch {
+        # Si no se puede escribir en Event Log, al menos mostrarlo en salida
+      }
+      
+      Write-Output $logMessage
+    } catch {
+      # Si falla el logging, no fallar la tarea
+      Write-Output "Logging de auditoría no disponible: $($_.Exception.Message)"
+    }
+  delegate_to: "{{ domain_controller }}"
+  when: user_info.locked | default(false) and unlock_result.stdout is defined and "SUCCESS:" in unlock_result.stdout
+  changed_when: false
+  ignore_errors: yes
+  register: audit_log
 
 - name: Resumen de operación
   debug:
@@ -99,6 +180,8 @@
       - "     DESBLOQUEO DE USUARIO - RESULTADO"
       - "=========================================="
       - "Usuario: {{ ad_username }}"
+      - "Domain Controller: {{ domain_controller }}"
       - "{{ unlock_result.stdout | default('No se requirió desbloqueo') }}"
       - "{{ verify_result.stdout | default('') }}"
       - "{{ 'ADVERTENCIA: Password expirado - El usuario debe cambiar su contraseña' if user_info.passwordExpired else '' }}"
+      - "{{ audit_log.stdout | default('') if audit_log.stdout is defined else '' }}"

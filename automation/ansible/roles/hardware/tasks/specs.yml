@@ -6,14 +6,27 @@
 
 - name: Obtener información del sistema
   ansible.windows.win_shell: |
-    # Recolectar información del sistema
+    # Recolectar información del sistema (usando Get-CimInstance de forma consistente)
     $systemInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
     $biosInfo = Get-CimInstance -ClassName Win32_BIOS -ErrorAction SilentlyContinue
-    $processorInfo = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue
-    $osInfo = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction SilentlyContinue
-    $serialNumber = (Get-WmiObject -Class Win32_BIOS -ErrorAction SilentlyContinue).SerialNumber
+    $processors = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue
+    $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
     
-    if (!$serialNumber) { $serialNumber = "No disponible" }
+    # Obtener número de serie (validación mejorada)
+    $serialNumber = "No disponible"
+    if ($biosInfo -and $biosInfo.SerialNumber) {
+        $serialNumber = $biosInfo.SerialNumber
+    }
+    
+    # Procesador: manejar múltiples procesadores
+    $processorName = "N/A"
+    if ($processors) {
+        # Si hay múltiples, tomar el primero y agregar contador
+        $processorName = $processors[0].Name
+        if ($processors.Count -gt 1) {
+            $processorName = "$processorName ($($processors.Count) procesadores)"
+        }
+    }
     
     # Obtener parche de actualización
     $path = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages"
@@ -36,15 +49,31 @@
     $ethernetAdapter = $networkAdapters | Where-Object { $_.Description -notmatch "Wi-Fi|Wireless" }
     $ethernetIP = if ($ethernetAdapter -and $ethernetAdapter.IPAddress) { $ethernetAdapter.IPAddress -join ', ' } else { "No conectado" }
     
-    # Version Windows
-    $displayVersion = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion -ErrorAction SilentlyContinue
-    $buildNumber = if ($osInfo) { $osInfo.BuildNumber } else { "N/A" }
-    $versionWinver = if ($pkgs) { $pkgs.PSChildName -replace ".*~", "" } else { "N/A" }
+    # Version Windows (con fallback si DisplayVersion no existe)
+    $displayVersion = "N/A"
+    try {
+        $displayVersion = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion -ErrorAction Stop
+    } catch {
+        # Intentar obtener desde otra propiedad
+        try {
+            $displayVersion = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).ReleaseId
+        } catch {
+            $displayVersion = "N/A"
+        }
+    }
     
-    # Fecha instalación
+    $buildNumber = if ($osInfo -and $osInfo.BuildNumber) { $osInfo.BuildNumber } else { "N/A" }
+    $versionWinver = if ($pkgs -and $pkgs.PSChildName) { $pkgs.PSChildName -replace ".*~", "" } else { "N/A" }
+    
+    # Fecha instalación (validación mejorada)
     $formattedInstallDate = "N/A"
     if ($osInfo -and $osInfo.InstallDate) {
-        $formattedInstallDate = [Management.ManagementDateTimeConverter]::ToDateTime($osInfo.InstallDate).ToString("dd/MM/yyyy HH:mm:ss")
+        try {
+            $installDate = [DateTime]::ParseExact($osInfo.InstallDate.Split('.')[0], "yyyyMMddHHmmss", $null)
+            $formattedInstallDate = $installDate.ToString("dd/MM/yyyy HH:mm:ss")
+        } catch {
+            $formattedInstallDate = "N/A"
+        }
     }
     
     # Espacio en disco
@@ -52,18 +81,26 @@
     $freeSpaceGB = if ($diskC) { [math]::round($diskC.FreeSpace / 1GB, 2) } else { "N/A" }
     $totalSpaceGB = if ($diskC) { [math]::round($diskC.Size / 1GB, 2) } else { "N/A" }
     
+    # Validaciones de objetos antes de mostrar
+    $equipoName = if ($systemInfo -and $systemInfo.Name) { $systemInfo.Name } else { "N/A" }
+    $modelo = if ($systemInfo -and $systemInfo.Model) { $systemInfo.Model } else { "N/A" }
+    $fabricante = if ($systemInfo -and $systemInfo.Manufacturer) { $systemInfo.Manufacturer } else { "N/A" }
+    $ramGB = if ($systemInfo -and $systemInfo.TotalPhysicalMemory) { [math]::round($systemInfo.TotalPhysicalMemory / 1GB, 2) } else { "N/A" }
+    $biosVersion = if ($biosInfo -and $biosInfo.SMBIOSBIOSVersion) { $biosInfo.SMBIOSBIOSVersion } else { "N/A" }
+    $osCaption = if ($osInfo -and $osInfo.Caption) { $osInfo.Caption } else { "N/A" }
+    
     # Output formateado
     Write-Output "========================================================="
     Write-Output "             ESPECIFICACIONES DEL SISTEMA"
     Write-Output "========================================================="
-    Write-Output "Nombre del equipo: $($systemInfo.Name)"
-    Write-Output "Modelo del equipo: $($systemInfo.Model)"
-    Write-Output "Fabricante: $($systemInfo.Manufacturer)"
+    Write-Output "Nombre del equipo: $equipoName"
+    Write-Output "Modelo del equipo: $modelo"
+    Write-Output "Fabricante: $fabricante"
     Write-Output "Numero de Serie: $serialNumber"
-    Write-Output "Procesador: $($processorInfo.Name)"
-    Write-Output "RAM (GB): $([math]::round($systemInfo.TotalPhysicalMemory / 1GB, 2))"
-    Write-Output "Version BIOS: $($biosInfo.SMBIOSBIOSVersion)"
-    Write-Output "Sistema Operativo: $($osInfo.Caption)"
+    Write-Output "Procesador: $processorName"
+    Write-Output "RAM (GB): $ramGB"
+    Write-Output "Version BIOS: $biosVersion"
+    Write-Output "Sistema Operativo: $osCaption"
     Write-Output "Version Windows: $displayVersion (Build $buildNumber)"
     Write-Output "Parche: $versionWinver"
     Write-Output "Fecha Instalacion: $formattedInstallDate"
@@ -77,12 +114,20 @@
     
     if ($diskInfo) {
         $diskInfo | ForEach-Object {
-            Write-Output "Modelo Disco: $($_.Model)"
-            Write-Output "Tamano Disco: $($_.SizeGB) GB"
+            $diskModel = if ($_.Model) { $_.Model } else { "N/A" }
+            $diskSize = if ($_.SizeGB) { $_.SizeGB } else { "N/A" }
+            Write-Output "Modelo Disco: $diskModel"
+            Write-Output "Tamano Disco: $diskSize GB"
         }
     }
   register: system_specs
   changed_when: false
+  failed_when: false
+
+- name: Validar que se obtuvo información
+  fail:
+    msg: "No se pudo obtener información del sistema. Verificar conectividad y permisos."
+  when: system_specs.rc != 0 or system_specs.stdout_lines is not defined or system_specs.stdout_lines | length == 0
 
 - name: Mostrar especificaciones
   debug:

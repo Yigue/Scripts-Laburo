@@ -8,11 +8,23 @@
 #   ansible-playbook -i inventory/hosts.ini playbooks/admin/unlock_user.yml \
 #     --extra-vars "target_host=DC01 ad_username=jperez"
 #
-# NOTA: target_host debe ser el Domain Controller o un equipo con RSAT
+# NOTA: Si target_host no se especifica o es 'localhost', se usará 
+#       domain_controller de las variables de grupo
 # ============================================================================
 
+- name: Determinar el host a usar (target_host o domain_controller)
+  set_fact:
+    actual_target_host: >-
+      {%- if target_host is defined and target_host != "" and target_host != "localhost" -%}
+        {{ target_host }}
+      {%- elif domain_controller is defined -%}
+        {{ domain_controller }}
+      {%- else -%}
+        localhost
+      {%- endif -%}
+
 - name: Desbloquear Usuario en AD
-  hosts: "{{ target_host | default('all') }}"
+  hosts: "{{ actual_target_host }}"
   gather_facts: no
   
   tasks:

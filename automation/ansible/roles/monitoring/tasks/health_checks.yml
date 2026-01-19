@@ -13,19 +13,31 @@
     }
     
     # Chequeo de servicios
-    foreach ($svc_name in @("{{ critical_services | join('","') }}")) {
-        $svc = Get-Service -Name $svc_name -ErrorAction SilentlyContinue
-        $results.Services += [PSCustomObject]@{
-            Name = $svc_name
-            Status = if ($svc) { $svc.Status.ToString() } else { "NOT_FOUND" }
+    $services_list = "{{ critical_services | join(',') }}".Split(',')
+    foreach ($svc_name in $services_list) {
+        $svc_name = $svc_name.Trim()
+        if ($svc_name) {
+            $svc = Get-Service -Name $svc_name -ErrorAction SilentlyContinue
+            $results.Services += [PSCustomObject]@{
+                Name = $svc_name
+                Status = if ($svc) { $svc.Status.ToString() } else { "NOT_FOUND" }
+            }
         }
     }
     
     # Chequeo de disco
-    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
-    $results.Disk = [PSCustomObject]@{
-        FreePercent = [math]::Round(($disk.FreeSpace / $disk.Size) * 100, 2)
-        Status = if (($disk.FreeSpace / $disk.Size) * 100 -lt {{ disk_threshold_percent }}) { "CRITICAL" } else { "OK" }
+    $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+    if ($disk) {
+        $freePercent = [math]::Round(($disk.FreeSpace / $disk.Size) * 100, 2)
+        $results.Disk = [PSCustomObject]@{
+            FreePercent = $freePercent
+            Status = if ($freePercent -lt {{ disk_threshold_percent }}) { "CRITICAL" } else { "OK" }
+        }
+    } else {
+        $results.Disk = [PSCustomObject]@{
+            FreePercent = 0
+            Status = "DISK_NOT_FOUND"
+        }
     }
     
     $results | ConvertTo-Json
@@ -40,7 +52,7 @@
   debug:
     msg:
       - "=========================================="
-     - "     REPORTE DE SALUD DEL SISTEMA"
+      - "     REPORTE DE SALUD DEL SISTEMA"
       - "=========================================="
       - "Uptime (Last Boot): {{ system_health.Uptime }}"
       - "Estado de Disco C: {{ system_health.Disk.Status }} ({{ system_health.Disk.FreePercent }}% libre)"

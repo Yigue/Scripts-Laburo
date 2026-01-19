@@ -54,14 +54,24 @@
 
 - name: Optimizar disco (si es SSD, TRIM; si es HDD, desfragmentar)
   ansible.windows.win_shell: |
-    $disk = Get-PhysicalDisk | Where-Object { $_.DeviceId -eq 0 }
-    
-    if ($disk.MediaType -eq "SSD") {
-      Optimize-Volume -DriveLetter C -ReTrim -Verbose
-      Write-Output "TRIM ejecutado en SSD"
-    } else {
-      Optimize-Volume -DriveLetter C -Defrag -Verbose
-      Write-Output "Desfragmentacion iniciada en HDD"
+    try {
+      $disk = Get-PhysicalDisk | Where-Object { $_.DeviceId -eq 0 } | Select-Object -First 1
+      
+      if ($disk -and $disk.MediaType) {
+        if ($disk.MediaType -eq "SSD") {
+          Optimize-Volume -DriveLetter C -ReTrim -Verbose -ErrorAction Stop
+          Write-Output "TRIM ejecutado en SSD"
+        } else {
+          Optimize-Volume -DriveLetter C -Defrag -Verbose -ErrorAction Stop
+          Write-Output "Desfragmentacion iniciada en HDD"
+        }
+      } else {
+        # Fallback: intentar TRIM por defecto
+        Optimize-Volume -DriveLetter C -ReTrim -Verbose -ErrorAction Stop
+        Write-Output "Optimizacion de disco completada (TRIM por defecto)"
+      }
+    } catch {
+      Write-Output "Advertencia: No se pudo optimizar el disco: $($_.Exception.Message)"
     }
   register: disk_optimize
   ignore_errors: true

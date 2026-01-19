@@ -4,57 +4,185 @@
 # Reparación completa de red (flush DNS, reset IP, reiniciar adaptador)
 # ============================================================================
 
+- name: Verificar conectividad inicial
+  ansible.windows.win_shell: |
+    $ping = Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet -ErrorAction SilentlyContinue
+    if ($ping) {
+      Write-Output "OK"
+    } else {
+      Write-Output "FALLO"
+    }
+  register: connectivity_before
+  changed_when: false
+  failed_when: false
+
+- name: Detectar adaptador usado para WinRM
+  ansible.windows.win_shell: |
+    $winrmIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+      $_.IPAddress -notlike '169.254.*' -and
+      $_.InterfaceAlias -notlike '*vEthernet*'
+    } | Select-Object -First 1)
+    
+    if ($winrmIP) {
+      $adapter = Get-NetAdapter -InterfaceIndex $winrmIP.InterfaceIndex -ErrorAction SilentlyContinue
+      if ($adapter) {
+        @{
+          name = $adapter.Name
+          description = $adapter.InterfaceDescription
+          isWiFi = ($adapter.InterfaceDescription -like '*Wireless*' -or $adapter.InterfaceDescription -like '*Wi-Fi*')
+        } | ConvertTo-Json
+      } else {
+        @{ name = "" } | ConvertTo-Json
+      }
+    } else {
+      @{ name = "" } | ConvertTo-Json
+    }
+  register: winrm_adapter
+  changed_when: false
+  failed_when: false
+
+- name: Advertencia sobre comandos destructivos
+  debug:
+    msg:
+      - "⚠️⚠️⚠️ ADVERTENCIA CRÍTICA ⚠️⚠️⚠️"
+      - "Este playbook ejecutará comandos que pueden desconectar la conexión remota:"
+      - "  • ipconfig /release (liberará la IP actual)"
+      - "  • Reinicio de adaptador Wi-Fi"
+      - "  • Reset de Winsock/IP (puede requerir reinicio del equipo)"
+      - ""
+      - "Si estás conectado vía Wi-Fi, PUEDES PERDER LA CONEXIÓN."
+      - "Solo continuar si estás seguro o si tienes acceso físico al equipo."
+      - ""
+      - "Conectividad inicial: {{ connectivity_before.stdout | default('N/A') }}"
+
+- name: Advertir si WinRM usa Wi-Fi
+  debug:
+    msg:
+      - "⚠️ ADVERTENCIA: WinRM está usando el adaptador '{{ (winrm_adapter.stdout | from_json | default({})).name | default('N/A') }}'"
+      - "Este es un adaptador Wi-Fi. El reinicio desconectará la sesión remota."
+  when: 
+    - winrm_adapter.stdout is defined
+    - (winrm_adapter.stdout | from_json | default({})).isWiFi | default(false) | bool
+
 - name: Limpiar caché DNS
   ansible.windows.win_shell: |
     ipconfig /flushdns
     Write-Output "Cache DNS limpiado"
   register: dns_flush
+  changed_when: false
 
-- name: Liberar IP actual
+- name: Verificar adaptadores activos antes de liberar IP
   ansible.windows.win_shell: |
-    ipconfig /release
-    Write-Output "IP liberada"
+    $activeAdapters = (Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }).Count
+    Write-Output $activeAdapters
+  register: active_adapters_count
+  changed_when: false
+  failed_when: false
+
+- name: Liberar IP actual (solo si hay múltiples adaptadores)
+  ansible.windows.win_shell: |
+    $activeAdapters = {{ active_adapters_count.stdout | default('0') }}
+    if ($activeAdapters -gt 1) {
+      ipconfig /release
+      Write-Output "IP liberada (hay $activeAdapters adaptadores activos)"
+    } else {
+      Write-Output "OMITIDO: Solo hay 1 adaptador activo, no se libera IP para evitar desconexión"
+    }
   register: ip_release
-  ignore_errors: true
+  failed_when: false
 
 - name: Renovar IP
   ansible.windows.win_shell: |
     ipconfig /renew
     Write-Output "IP renovada"
   register: ip_renew
-  ignore_errors: true
+  failed_when: false
+  when: active_adapters_count.stdout | default('0') | int > 1
 
 - name: Resetear Winsock
   ansible.windows.win_shell: |
     netsh winsock reset catalog
     Write-Output "Catalogo Winsock reseteado"
   register: winsock_reset
+  failed_when: false
 
 - name: Resetear stack IP
   ansible.windows.win_shell: |
     netsh int ip reset resetlog.txt
     Write-Output "Stack IP reseteado"
   register: ip_reset
+  failed_when: false
 
-- name: Reiniciar adaptador Wi-Fi
+- name: Verificar adaptador Wi-Fi antes de reiniciar
   ansible.windows.win_shell: |
     $wifiAdapter = Get-NetAdapter | Where-Object { 
       $_.Status -eq 'Up' -and 
       ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*')
     } | Select-Object -First 1
     
+    $winrmAdapter = "{{ (winrm_adapter.stdout | from_json | default({})).name | default('') }}"
+    
     if ($wifiAdapter) {
+      if ($wifiAdapter.Name -eq $winrmAdapter -and $winrmAdapter -ne '') {
+        @{
+          found = $true
+          name = $wifiAdapter.Name
+          isWinRM = $true
+          skip = $true
+        } | ConvertTo-Json
+      } else {
+        @{
+          found = $true
+          name = $wifiAdapter.Name
+          isWinRM = $false
+          skip = $false
+        } | ConvertTo-Json
+      }
+    } else {
+      @{
+        found = $false
+        skip = $true
+      } | ConvertTo-Json
+    }
+  register: wifi_adapter_check
+  changed_when: false
+  failed_when: false
+
+- name: Advertir sobre reinicio de adaptador WinRM
+  debug:
+    msg:
+      - "⚠️ ADVERTENCIA: Se detectó que el adaptador Wi-Fi '{{ (wifi_adapter_check.stdout | from_json | default({})).name | default('N/A') }}' es el usado para WinRM"
+      - "NO se reiniciará este adaptador para evitar perder la conexión remota."
+  when: 
+    - wifi_adapter_check.stdout is defined
+    - (wifi_adapter_check.stdout | from_json | default({})).isWinRM | default(false) | bool
+
+- name: Reiniciar adaptador Wi-Fi (solo si no es el de WinRM)
+  ansible.windows.win_shell: |
+    $wifiAdapter = Get-NetAdapter | Where-Object { 
+      $_.Status -eq 'Up' -and 
+      ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*')
+    } | Select-Object -First 1
+    
+    $winrmAdapter = "{{ (winrm_adapter.stdout | from_json | default({})).name | default('') }}"
+    
+    if ($wifiAdapter -and $wifiAdapter.Name -ne $winrmAdapter) {
       Write-Output "Reiniciando adaptador: $($wifiAdapter.Name)"
       Disable-NetAdapter -Name $wifiAdapter.Name -Confirm:$false
       Start-Sleep -Seconds 3
       Enable-NetAdapter -Name $wifiAdapter.Name -Confirm:$false
       Start-Sleep -Seconds 5
       Write-Output "Adaptador Wi-Fi reiniciado"
+    } elseif ($wifiAdapter -and $wifiAdapter.Name -eq $winrmAdapter) {
+      Write-Output "OMITIDO: No se reinicia el adaptador usado para WinRM ({{ $winrmAdapter }})"
     } else {
       Write-Output "No se encontro adaptador Wi-Fi activo"
     }
   register: wifi_restart
-  ignore_errors: true
+  failed_when: false
+  when: 
+    - wifi_adapter_check.stdout is defined
+    - not ((wifi_adapter_check.stdout | from_json | default({})).skip | default(false) | bool)
 
 - name: Verificar conectividad post-reparación
   ansible.windows.win_shell: |
@@ -67,10 +195,22 @@
     
     $ping = Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet -ErrorAction SilentlyContinue
     
+    Write-Output "Conectividad inicial: {{ connectivity_before.stdout | default('N/A') }}"
     Write-Output "Nueva IP: $ip"
     Write-Output "Conectividad a Internet: $(if ($ping) { 'OK' } else { 'FALLO' })"
   register: post_check
   changed_when: false
+
+- name: Verificar resultado de comandos críticos
+  debug:
+    msg:
+      - "⚠️ ADVERTENCIA: Algunos comandos pueden haber fallado:"
+      - "{{ '  • IP Release/Renew falló' if (ip_release.failed | default(false) or ip_renew.failed | default(false)) else '' }}"
+      - "{{ '  • Reinicio de adaptador Wi-Fi falló' if (wifi_restart.failed | default(false)) else '' }}"
+  when: 
+    - (ip_release.failed | default(false)) or 
+      (ip_renew.failed | default(false)) or 
+      (wifi_restart.failed | default(false))
 
 - name: Resumen de reparación de red
   debug:
@@ -78,13 +218,15 @@
       - "=========================================="
       - "    REPARACION DE RED - RESULTADO"
       - "=========================================="
+      - "Conectividad inicial: {{ connectivity_before.stdout | default('N/A') }}"
       - "DNS Flush: {{ dns_flush.stdout | default('OK') }}"
-      - "IP Release: {{ ip_release.stdout | default('OK') }}"
-      - "IP Renew: {{ ip_renew.stdout | default('OK') }}"
+      - "IP Release: {{ ip_release.stdout | default('OMITIDO') }}"
+      - "IP Renew: {{ ip_renew.stdout | default('OMITIDO (no ejecutado)') }}"
       - "Winsock Reset: {{ winsock_reset.stdout | default('OK') }}"
       - "IP Stack Reset: {{ ip_reset.stdout | default('OK') }}"
       - "Wi-Fi Restart: {{ wifi_restart.stdout | default('N/A') }}"
       - "----------------------------------------"
       - "{{ post_check.stdout_lines | default(['Sin verificación']) }}"
       - "----------------------------------------"
-      - "NOTA: Puede requerir reinicio para aplicar cambios de Winsock/IP"
+      - "⚠️ NOTA: Los comandos de reset (Winsock/IP) pueden requerir reinicio del equipo para aplicar cambios completamente."
+      - "⚠️ Si se omitió el reinicio de adaptador Wi-Fi, fue porque es el usado para WinRM."

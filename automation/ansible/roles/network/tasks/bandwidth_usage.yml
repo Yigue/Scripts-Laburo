@@ -58,11 +58,15 @@
     bandwidth: "{{ bandwidth_raw.stdout | from_json }}"
   when: bandwidth_raw.stdout is defined
 
-- name: Obtener velocidad actual (bytes/segundo)
+- name: Obtener velocidad actual (bytes/segundo) - medición mejorada
   ansible.windows.win_shell: |
     $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
     
-    # Primera medición
+    # Múltiples muestras para mayor precisión
+    $sampleInterval = 3  # segundos entre muestras
+    $numSamples = 3      # número de muestras
+    
+    # Primera medición (baseline)
     $first = @{}
     foreach ($adapter in $adapters) {
       $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue
@@ -74,32 +78,69 @@
       }
     }
     
-    # Esperar 2 segundos
-    Start-Sleep -Seconds 2
+    # Tomar múltiples muestras
+    $samples = @()
+    for ($s = 1; $s -le $numSamples; $s++) {
+      Start-Sleep -Seconds $sampleInterval
+      
+      $current = @{}
+      foreach ($adapter in $adapters) {
+        # Validar que el adaptador sigue activo
+        $adapterCheck = Get-NetAdapter -Name $adapter.Name -ErrorAction SilentlyContinue
+        if ($adapterCheck -and $adapterCheck.Status -eq 'Up') {
+          $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue
+          if ($stats -and $first[$adapter.Name]) {
+            $current[$adapter.Name] = @{
+              received = $stats.ReceivedBytes
+              sent = $stats.SentBytes
+            }
+          }
+        }
+      }
+      $samples += $current
+    }
     
-    # Segunda medición
+    # Calcular promedio de todas las muestras
     $results = @()
+    $duration = $sampleInterval * $numSamples
+    
     foreach ($adapter in $adapters) {
-      $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction SilentlyContinue
-      if ($stats -and $first[$adapter.Name]) {
-        $receivedDiff = $stats.ReceivedBytes - $first[$adapter.Name].received
-        $sentDiff = $stats.SentBytes - $first[$adapter.Name].sent
+      if ($first[$adapter.Name]) {
+        $totalReceived = 0
+        $totalSent = 0
+        $validSamples = 0
         
-        # Convertir a Mbps (bytes * 8 / 2 segundos / 1000000)
-        $receivedMbps = [math]::Round(($receivedDiff * 8) / 2 / 1000000, 2)
-        $sentMbps = [math]::Round(($sentDiff * 8) / 2 / 1000000, 2)
+        foreach ($sample in $samples) {
+          if ($sample[$adapter.Name]) {
+            $totalReceived += $sample[$adapter.Name].received - $first[$adapter.Name].received
+            $totalSent += $sample[$adapter.Name].sent - $first[$adapter.Name].sent
+            $validSamples++
+          }
+        }
         
-        $results += @{
-          name = $adapter.Name
-          download_mbps = $receivedMbps
-          upload_mbps = $sentMbps
-          total_mbps = [math]::Round($receivedMbps + $sentMbps, 2)
+        if ($validSamples -gt 0) {
+          $avgReceived = $totalReceived / $validSamples
+          $avgSent = $totalSent / $validSamples
+          
+          # Convertir a Mbps: bytes * 8 bits / segundos / 1000000
+          $receivedMbps = [math]::Round(($avgReceived * 8) / $sampleInterval / 1000000, 2)
+          $sentMbps = [math]::Round(($avgSent * 8) / $sampleInterval / 1000000, 2)
+          
+          $results += @{
+            name = $adapter.Name
+            download_mbps = $receivedMbps
+            upload_mbps = $sentMbps
+            total_mbps = [math]::Round($receivedMbps + $sentMbps, 2)
+            samples = $validSamples
+          }
         }
       }
     }
     
     @{
-      measurement_duration_s = 2
+      measurement_duration_s = $duration
+      sample_interval_s = $sampleInterval
+      num_samples = $numSamples
       current_usage = $results
     } | ConvertTo-Json -Depth 3
   register: current_speed_raw
@@ -145,7 +186,7 @@
   debug:
     msg:
       - "=========================================="
-      - "     ⚡ VELOCIDAD ACTUAL (tiempo real)"
+      - "     ⚡ VELOCIDAD ACTUAL ({{ current_speed.measurement_duration_s | default(2) }}s, {{ current_speed.num_samples | default(1) }} muestras)"
       - "=========================================="
 
 - name: Detalles de velocidad actual por adaptador

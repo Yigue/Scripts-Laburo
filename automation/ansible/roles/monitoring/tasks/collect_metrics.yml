@@ -6,14 +6,29 @@
 
 - name: Recolectar métricas clave
   ansible.windows.win_shell: |
-    $cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
-    $mem = Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory
-    
-    [PSCustomObject]@{
-        CPU_Load = $cpu
-        Mem_Used_Percent = [math]::Round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
-        Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    } | ConvertTo-Json
+    try {
+        $cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
+        if (-not $cpu) { $cpu = 0 }
+        
+        $mem = Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory
+        $memUsedPercent = 0
+        if ($mem -and $mem.TotalVisibleMemorySize -gt 0) {
+            $memUsedPercent = [math]::Round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
+        }
+        
+        [PSCustomObject]@{
+            CPU_Load = $cpu
+            Mem_Used_Percent = $memUsedPercent
+            Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        } | ConvertTo-Json -Compress
+    } catch {
+        [PSCustomObject]@{
+            CPU_Load = 0
+            Mem_Used_Percent = 0
+            Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            Error = $_.Exception.Message
+        } | ConvertTo-Json -Compress
+    }
   register: metrics_raw
   changed_when: false
 
@@ -27,6 +42,6 @@
       - "=========================================="
       - "     MÉTRICAS DEL SISTEMA (Real-time)"
       - "=========================================="
-     - "CPU Load: {{ system_metrics.CPU_Load }}%"
+      - "CPU Load: {{ system_metrics.CPU_Load }}%"
       - "Memory usage: {{ system_metrics.Mem_Used_Percent }}%"
       - "Time: {{ system_metrics.Timestamp }}"

@@ -4,6 +4,18 @@
 # Gestión de impresoras y spooler
 # ============================================================================
 
+- name: Verificar permisos de administrador
+  ansible.windows.win_shell: |
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+      Write-Output "ERROR: Se requieren permisos de administrador para gestionar impresoras"
+      exit 1
+    }
+    Write-Output "OK: Permisos de administrador verificados"
+  register: admin_check
+  failed_when: "'ERROR' in admin_check.stdout"
+  changed_when: false
+
 - name: Obtener estado del servicio Spooler
   ansible.windows.win_service_info:
     name: Spooler
@@ -64,26 +76,65 @@
 
 - name: Limpiar cola de impresión (si hay trabajos atascados)
   ansible.windows.win_shell: |
-    $jobs = Get-PrintJob -PrinterName * -ErrorAction SilentlyContinue
+    $ErrorActionPreference = "Stop"
+    $spoolerRestartDelay = {{ spooler_restart_delay | default(5) }}
     
-    if ($jobs.Count -gt 0) {
-      Write-Output "Limpiando $($jobs.Count) trabajos..."
+    try {
+      $jobs = Get-PrintJob -PrinterName * -ErrorAction SilentlyContinue
       
-      # Detener spooler
-      Stop-Service Spooler -Force -ErrorAction SilentlyContinue
-      
-      # Eliminar archivos de cola
-      Remove-Item "C:\Windows\System32\spool\PRINTERS\*" -Force -ErrorAction SilentlyContinue
-      
-      # Reiniciar spooler
-      Start-Service Spooler -ErrorAction SilentlyContinue
-      
-      Write-Output "Cola de impresión limpiada"
-    } else {
-      Write-Output "No hay trabajos que limpiar"
+      if ($jobs -and $jobs.Count -gt 0) {
+        Write-Output "Limpiando $($jobs.Count) trabajos..."
+        
+        # Obtener servicio Spooler
+        $spoolerService = Get-Service -Name Spooler -ErrorAction Stop
+        
+        # Detener spooler con timeout
+        if ($spoolerService.Status -eq "Running") {
+          Write-Output "Deteniendo servicio Spooler..."
+          Stop-Service -Name Spooler -Force -ErrorAction Stop
+          
+          # Esperar a que se detenga
+          $spoolerService.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+          
+          if ((Get-Service -Name Spooler).Status -ne "Stopped") {
+            throw "No se pudo detener el servicio Spooler en 30 segundos"
+          }
+        }
+        
+        # Eliminar archivos de cola
+        $spoolPath = "C:\Windows\System32\spool\PRINTERS"
+        if (Test-Path $spoolPath) {
+          Write-Output "Eliminando archivos de cola..."
+          Get-ChildItem -Path "$spoolPath\*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Esperar antes de reiniciar
+        Start-Sleep -Seconds $spoolerRestartDelay
+        
+        # Reiniciar spooler
+        Write-Output "Reiniciando servicio Spooler..."
+        Start-Service -Name Spooler -ErrorAction Stop
+        
+        # Esperar a que se inicie
+        $spoolerService.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+        
+        if ((Get-Service -Name Spooler).Status -ne "Running") {
+          throw "No se pudo iniciar el servicio Spooler en 30 segundos"
+        }
+        
+        Write-Output "OK: Cola de impresión limpiada exitosamente"
+      } else {
+        Write-Output "No hay trabajos que limpiar"
+      }
+    } catch {
+      $errorMsg = "ERROR al limpiar cola: $($_.Exception.Message)"
+      Write-Output $errorMsg
+      Write-Error $errorMsg
+      exit 1
     }
   register: queue_cleanup
   when: clean_queue | default(false) | bool
+  failed_when: "'ERROR' in queue_cleanup.stdout"
 
 - name: Reiniciar servicio Spooler
   ansible.windows.win_service:

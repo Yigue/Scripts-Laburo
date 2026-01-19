@@ -4,6 +4,21 @@
 # Análisis completo de conexión Wi-Fi y redes disponibles
 # ============================================================================
 
+- name: Verificar si hay conexión Wi-Fi activa
+  ansible.windows.win_shell: |
+    $wifiAdapters = Get-NetAdapter | Where-Object { 
+      ($_.InterfaceDescription -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*') -and 
+      $_.Status -eq 'Up' 
+    }
+    if ($wifiAdapters) { 
+      Write-Output "true" 
+    } else { 
+      Write-Output "false" 
+    }
+  register: wifi_active
+  changed_when: false
+  failed_when: false
+
 - name: Obtener información completa de interfaz Wi-Fi
   ansible.windows.win_shell: |
     $wlanOutput = netsh wlan show interfaces
@@ -80,10 +95,32 @@
   register: wifi_info_raw
   changed_when: false
   failed_when: false
+  when: wifi_active.stdout == "true"
+
+- name: Validar JSON de información Wi-Fi
+  assert:
+    that:
+      - wifi_info_raw.stdout is defined
+      - "'{' in wifi_info_raw.stdout"
+      - "'}' in wifi_info_raw.stdout"
+    fail_msg: "Error: No se pudo obtener información Wi-Fi en formato JSON"
+    quiet: true
+  when: 
+    - wifi_active.stdout == "true"
+    - wifi_info_raw.stdout is defined
 
 - name: Parsear información Wi-Fi
   set_fact:
     wifi_info: "{{ wifi_info_raw.stdout | from_json }}"
+  when: 
+    - wifi_active.stdout == "true"
+    - wifi_info_raw.stdout is defined
+    - "'{' in wifi_info_raw.stdout"
+
+- name: Informar si no hay Wi-Fi activo
+  debug:
+    msg: "ℹ️ No se detectó conexión Wi-Fi activa. El equipo puede estar usando Ethernet o no tener adaptador Wi-Fi."
+  when: wifi_active.stdout == "false"
 
 - name: Escanear redes Wi-Fi disponibles
   ansible.windows.win_shell: |
@@ -171,8 +208,16 @@
 
 - name: Test de conectividad avanzado
   ansible.windows.win_shell: |
-    $targets = @(
-      @{ name = "Gateway Local"; target = "{{ (network_config.gateway | default('')) }}" },
+    $targets = @()
+    
+    # Solo agregar gateway si existe y no está vacío
+    $gateway = "{{ network_config.gateway | default('') }}"
+    if ($gateway -and $gateway.Trim() -ne '') {
+      $targets += @{ name = "Gateway Local"; target = $gateway }
+    }
+    
+    # Agregar targets fijos
+    $targets += @(
       @{ name = "Google DNS"; target = "8.8.8.8" },
       @{ name = "Cloudflare DNS"; target = "1.1.1.1" },
       @{ name = "Google.com"; target = "google.com" },

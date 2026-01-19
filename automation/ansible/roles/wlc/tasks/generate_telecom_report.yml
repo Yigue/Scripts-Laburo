@@ -10,6 +10,14 @@
       - "show ap summary"
       - "show client summary"
   register: telecom_data_raw
+  vars:
+    ansible_connection: network_cli
+    ansible_network_os: ios
+    ansible_user: "{{ wlc_user | default(ansible_user) }}"
+    ansible_password: "{{ wlc_password | default(ansible_password) }}"
+    ansible_become: yes
+    ansible_become_method: enable
+    ansible_become_password: "{{ wlc_enable_password | default(ansible_become_password) }}"
 
 - name: Mostrar resumen para reporte
   debug:

@@ -1,10 +1,30 @@
 ---
-# Playbook para verificar actualizaciones de Windows pendientes
+# ============================================================================
+# Playbook: Verificar Windows Updates
+# ============================================================================
+# Busca actualizaciones de Windows pendientes sin instalar
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/hardware/check_updates.yml \
+#     --extra-vars "target_host=HOSTNAME"
+# ============================================================================
+
 - name: Verificar Windows Updates
-  hosts: "{{ target_host }}"
+  hosts: "{{ target_host | default('all') }}"
   gather_facts: no
   tasks:
     - name: Consultar actualizaciones de Windows
       include_role:
         name: common
-        tasks_from: check_windows_updates
+        tasks_from: check_windows_updates.yml
+    
+    - name: Mostrar resumen de actualizaciones
+      debug:
+        msg:
+          - "=========================================="
+          - "     WINDOWS UPDATES - RESUMEN"
+          - "=========================================="
+          - "Actualizaciones pendientes: {{ windows_updates.pending_count | default(0) }}"
+          - "{{ '✅ No hay actualizaciones pendientes' if windows_updates.pending_count == 0 else ('⚠️ Hay actualizaciones pendientes' if windows_updates.pending_count > 0 else '❌ Error al verificar actualizaciones') }}"
+          - "=========================================="
+      when: windows_updates is defined

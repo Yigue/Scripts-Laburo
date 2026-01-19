@@ -11,22 +11,34 @@
   ansible.windows.win_shell: |
     $count = if ("{{ log_count | default('') }}") { [int]"{{ log_count }}" } else { 20 }
     
-    $system_errors = Get-WinEvent -LogName System -MaxEvents $count -FilterHashTable @{Level=2} -ErrorAction SilentlyContinue | ForEach-Object {
-        [PSCustomObject]@{
-            Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
-            Source = $_.ProviderName
-            ID = $_.Id
-            Message = $_.Message.Substring(0, [math]::Min($_.Message.Length, 100))
+    $system_errors = @()
+    try {
+        $system_events = Get-WinEvent -LogName System -MaxEvents $count -FilterHashTable @{Level=2} -ErrorAction SilentlyContinue
+        $system_errors = $system_events | ForEach-Object {
+            [PSCustomObject]@{
+                Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                Source = $_.ProviderName
+                ID = $_.Id
+                Message = if ($_.Message) { $_.Message.Substring(0, [math]::Min($_.Message.Length, 100)) } else { "N/A" }
+            }
         }
+    } catch {
+        $system_errors = @()
     }
     
-    $app_errors = Get-WinEvent -LogName Application -MaxEvents $count -FilterHashTable @{Level=2} -ErrorAction SilentlyContinue | ForEach-Object {
-        [PSCustomObject]@{
-            Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
-            Source = $_.ProviderName
-            ID = $_.Id
-            Message = $_.Message.Substring(0, [math]::Min($_.Message.Length, 100))
+    $app_errors = @()
+    try {
+        $app_events = Get-WinEvent -LogName Application -MaxEvents $count -FilterHashTable @{Level=2} -ErrorAction SilentlyContinue
+        $app_errors = $app_events | ForEach-Object {
+            [PSCustomObject]@{
+                Time = $_.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+                Source = $_.ProviderName
+                ID = $_.Id
+                Message = if ($_.Message) { $_.Message.Substring(0, [math]::Min($_.Message.Length, 100)) } else { "N/A" }
+            }
         }
+    } catch {
+        $app_errors = @()
     }
     
     @{

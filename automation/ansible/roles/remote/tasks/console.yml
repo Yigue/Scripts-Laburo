@@ -1,44 +1,119 @@
 ---
 # ============================================================================
 # Role: remote - Task: console
-# Consola remota (información y test de comandos)
+# Consola remota (información del equipo y ejecución de comandos)
 # ============================================================================
 # NOTA: La consola interactiva real no se puede ejecutar via Ansible.
-# Este playbook proporciona información del equipo y permite ejecutar
+# Este playbook proporciona información detallada del equipo y permite ejecutar
 # comandos simples. Para consola interactiva, usar Enter-PSSession o similar.
 # ============================================================================
 
 - name: Obtener información básica del equipo
   ansible.windows.win_shell: |
     Write-Output "=========================================="
-    Write-Output "       INFORMACIÓN DEL EQUIPO REMOTO"
+    Write-Output "    INFORMACIÓN DEL EQUIPO REMOTO"
     Write-Output "=========================================="
+    Write-Output ""
+    
+    # Información del sistema
+    Write-Output "--- SISTEMA ---"
     Write-Output "Hostname: $env:COMPUTERNAME"
     Write-Output "Usuario actual: $env:USERNAME"
     Write-Output "Dominio: $env:USERDOMAIN"
-    Write-Output "OS: $((Get-WmiObject Win32_OperatingSystem).Caption)"
-    Write-Output "Uptime: $((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime)"
+    $os = Get-CimInstance Win32_OperatingSystem
+    Write-Output "OS: $($os.Caption) ($($os.OSArchitecture))"
+    Write-Output "Build: $($os.BuildNumber)"
+    Write-Output "Service Pack: $($os.ServicePackMajorVersion).$($os.ServicePackMinorVersion)"
+    
+    # Uptime
+    $bootTime = $os.LastBootUpTime
+    $uptime = (Get-Date) - $bootTime
+    Write-Output "Último reinicio: $($bootTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+    Write-Output "Uptime: $($uptime.Days) días, $($uptime.Hours) horas, $($uptime.Minutes) minutos"
     Write-Output ""
-    Write-Output "Procesos en ejecución: $((Get-Process).Count)"
-    Write-Output "Servicios en ejecución: $((Get-Service | Where-Object { $_.Status -eq 'Running' }).Count)"
+    
+    # Hardware
+    Write-Output "--- HARDWARE ---"
+    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+    Write-Output "CPU: $($cpu.Name)"
+    Write-Output "Núcleos físicos: $($cpu.NumberOfCores)"
+    Write-Output "Núcleos lógicos: $($cpu.NumberOfLogicalProcessors)"
+    $ram = Get-CimInstance Win32_ComputerSystem
+    $totalRAM = [math]::Round($ram.TotalPhysicalMemory / 1GB, 2)
+    Write-Output "RAM Total: $totalRAM GB"
+    $availableRAM = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB, 2)
+    Write-Output "RAM Disponible: $availableRAM GB"
+    Write-Output ""
+    
+    # Discos
+    Write-Output "--- DISCOS ---"
+    Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 } | ForEach-Object {
+      $size = [math]::Round($_.Size / 1GB, 2)
+      $free = [math]::Round($_.FreeSpace / 1GB, 2)
+      $used = $size - $free
+      $percentFree = [math]::Round(($free / $size) * 100, 2)
+      Write-Output "$($_.DeviceID) - Total: $size GB | Usado: $used GB | Libre: $free GB ($percentFree%)"
+    }
+    Write-Output ""
+    
+    # Red
+    Write-Output "--- RED ---"
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' }
+    foreach ($adapter in $adapters) {
+      $ip = (Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).IPAddress
+      Write-Output "$($adapter.Name): $ip ($($adapter.LinkSpeed))"
+    }
+    Write-Output ""
+    
+    # Procesos y servicios
+    Write-Output "--- PROCESOS Y SERVICIOS ---"
+    $processCount = (Get-Process).Count
+    Write-Output "Procesos en ejecución: $processCount"
+    $serviceRunning = (Get-Service | Where-Object { $_.Status -eq 'Running' }).Count
+    $serviceStopped = (Get-Service | Where-Object { $_.Status -eq 'Stopped' }).Count
+    Write-Output "Servicios en ejecución: $serviceRunning"
+    Write-Output "Servicios detenidos: $serviceStopped"
+    Write-Output ""
+    
+    # Memoria de procesos top 5
+    Write-Output "--- TOP 5 PROCESOS POR MEMORIA ---"
+    Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 5 | ForEach-Object {
+      $memMB = [math]::Round($_.WorkingSet / 1MB, 2)
+      Write-Output "$($_.ProcessName): $memMB MB (PID: $($_.Id))"
+    }
+    Write-Output ""
+    
+    # Información de PowerShell
+    Write-Output "--- POWERSHELL ---"
+    Write-Output "Versión: $($PSVersionTable.PSVersion)"
+    Write-Output "Versión CLR: $($PSVersionTable.CLRVersion)"
+    Write-Output "Edición: $($PSVersionTable.PSEdition)"
   register: basic_info
   changed_when: false
 
 - name: Ejecutar comando personalizado
-  ansible.windows.win_shell: |
-    {{ custom_command | default('Write-Output "No se especificó comando personalizado"') }}
+  ansible.windows.win_shell: "{{ custom_command }}"
   register: custom_result
-  when: custom_command is defined
+  when: custom_command is defined and custom_command | trim != ""
+  failed_when: false
   changed_when: false
 
-- name: Mostrar información
-  debug:
-    msg:
-      - "{{ basic_info.stdout_lines }}"
-      - "{{ custom_result.stdout_lines | default([]) }}"
+- name: Mostrar información del sistema
+  ansible.builtin.debug:
+    msg: "{{ basic_info.stdout_lines }}"
+
+- name: Mostrar resultado del comando personalizado
+  ansible.builtin.debug:
+    msg: "{{ custom_result.stdout_lines | default([]) }}"
+  when: custom_result is defined and custom_result.stdout_lines is defined
+
+- name: Mostrar errores si existen
+  ansible.builtin.debug:
+    msg: "Errores: {{ custom_result.stderr_lines | default([]) }}"
+  when: custom_result is defined and custom_result.stderr_lines is defined and custom_result.stderr_lines | length > 0
 
 - name: Instrucciones para consola interactiva
-  debug:
+  ansible.builtin.debug:
     msg:
       - "=========================================="
       - "   PARA CONSOLA INTERACTIVA:"

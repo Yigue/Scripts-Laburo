@@ -40,6 +40,6 @@
   debug:
     msg:
       - "=========================================="
-     - "     REPORTE DE LIMPIEZA DE PERFILES (> {{ profile_age_days | default(180) }} días)"
+      - "     REPORTE DE LIMPIEZA DE PERFILES (> {{ profile_age_days | default(180) }} días)"
       - "=========================================="
       - "{{ removed_profiles | list }}"

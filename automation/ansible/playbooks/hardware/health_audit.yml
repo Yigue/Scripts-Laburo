@@ -7,32 +7,37 @@
     - name: 1. Obtener especificaciones (H1)
       include_role:
         name: hardware
-        tasks_from: specs
+        tasks_from: specs.yml
       register: specs_res
 
     - name: 2. Salud de Batería (H7)
       include_role:
         name: hardware
-        tasks_from: battery_health
+        tasks_from: battery_health.yml
       register: battery_res
       ignore_errors: yes
 
     - name: 3. Reporte SMART de Disco (H8)
       include_role:
         name: hardware
-        tasks_from: disk_smart
+        tasks_from: disk_smart.yml
       register: smart_res
 
     - name: 4. Buscar Windows Updates (H9)
       include_role:
         name: common
-        tasks_from: check_windows_updates
+        tasks_from: check_windows_updates.yml
       register: updates_res
+      ignore_errors: yes
 
     - name: Resumen de Auditoría
       debug:
         msg:
-          specs: "{{ specs_res }}"
-          battery: "{{ battery_res }}"
-          smart: "{{ smart_res }}"
-          updates: "{{ updates_res }}"
+          - "=========================================="
+          - "     AUDITORÍA GENERAL DE SALUD - RESUMEN"
+          - "=========================================="
+          - "✅ Especificaciones del Sistema: {{ 'OK' if specs_res is succeeded else 'ERROR' }}"
+          - "{{ '✅' if battery_res is succeeded else '⚠️' }} Salud de Batería: {{ 'OK' if battery_res is succeeded else ('SKIP - No es laptop' if battery_res.msg is defined and 'laptop' in battery_res.msg | lower else 'ERROR') }}"
+          - "{{ '✅' if smart_res is succeeded else '❌' }} Reporte SMART: {{ 'OK' if smart_res is succeeded else 'ERROR' }}"
+          - "{{ '✅' if updates_res is succeeded else '⚠️' }} Windows Updates: {{ 'OK' if updates_res is succeeded else 'ERROR o sin actualizaciones' }}"
+          - "=========================================="

@@ -1,13 +1,100 @@
 ---
-# Playbook para ejecución de script custom
+# ============================================================================
+# Playbook: Ejecutar Comando/Script Custom
+# ============================================================================
+# Ejecuta un script o comando PowerShell personalizado en el equipo remoto.
+#
+# Variables requeridas:
+#   - target_host: Hostname del equipo destino
+#   - custom_script: Script o comando PowerShell a ejecutar
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/remote/custom_command.yml \
+#     --extra-vars "target_host=HOSTNAME custom_script='Get-Process | Select -First 10'"
+# ============================================================================
+
 - name: Ejecutar Script Custom
   hosts: "{{ target_host }}"
   gather_facts: no
+  
   tasks:
-    - name: Ejecutar comando PowerShell custom
-      ansible.windows.win_shell: "{{ custom_script }}"
-      register: script_res
+    - name: Validar que custom_script esté definido
+      ansible.builtin.fail:
+        msg: "La variable custom_script es requerida"
+      when: custom_script is not defined or custom_script | trim == ""
     
-    - name: Mostrar resultado del script
-      debug:
+    - name: Ejecutar comando PowerShell custom
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = "Continue"
+        $scriptOutput = @()
+        $scriptErrors = @()
+        
+        try {
+            # Ejecutar el script y capturar salida y errores
+            $result = {{ custom_script | replace('"', '\"') | replace('$', '`$') }}
+            
+            if ($result) {
+                $scriptOutput += $result | Out-String -Stream
+            }
+        }
+        catch {
+            $scriptErrors += "Error: $_"
+            $scriptErrors += $_.Exception.Message
+        }
+        
+        # Escribir salida estándar
+        if ($scriptOutput) {
+            Write-Output "=== STDOUT ==="
+            $scriptOutput | ForEach-Object { Write-Output $_ }
+        }
+        
+        # Escribir errores si existen
+        if ($scriptErrors) {
+            Write-Output "=== STDERR ==="
+            $scriptErrors | ForEach-Object { Write-Output $_ }
+        }
+        
+        # Retornar código de salida
+        if ($scriptErrors.Count -gt 0) {
+            exit 1
+        } else {
+            exit 0
+        }
+      register: script_res
+      failed_when: false  # No fallar inmediatamente, manejamos el error manualmente
+      no_log: false
+    
+    - name: Mostrar resultado del script (stdout)
+      ansible.builtin.debug:
         msg: "{{ script_res.stdout_lines }}"
+      when: script_res.stdout_lines | length > 0
+    
+    - name: Mostrar errores del script (stderr)
+      ansible.builtin.debug:
+        msg: "{{ script_res.stderr_lines }}"
+        var: script_res.stderr_lines
+      when: script_res.stderr_lines | length > 0
+    
+    - name: Mostrar mensaje si no hubo salida
+      ansible.builtin.debug:
+        msg: "El script se ejecutó pero no generó salida visible"
+      when: 
+        - script_res.stdout_lines | length == 0
+        - script_res.stderr_lines | length == 0
+        - script_res.rc == 0
+    
+    - name: Reportar código de salida
+      ansible.builtin.debug:
+        msg: "Código de salida: {{ script_res.rc }}"
+    
+    - name: Fallar si el script retornó código de error
+      ansible.builtin.fail:
+        msg: |
+          El script retornó código de error: {{ script_res.rc }}
+          
+          Salida estándar:
+          {{ script_res.stdout_lines | default([]) | join('\n') }}
+          
+          Errores:
+          {{ script_res.stderr_lines | default([]) | join('\n') }}
+      when: script_res.rc != 0

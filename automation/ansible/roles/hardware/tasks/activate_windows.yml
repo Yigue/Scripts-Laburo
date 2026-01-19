@@ -49,6 +49,11 @@
       - "  Estado: {{ windows_activation.status }}"
       - "  Clave parcial: {{ windows_activation.partial_key | default('N/A') }}"
 
+- name: Verificar si KMS está configurado
+  debug:
+    msg: "⚠️ ADVERTENCIA: Variable kms_server no está definida. Saltando activación con KMS."
+  when: kms_server is not defined
+
 - name: Configurar servidor KMS
   ansible.windows.win_shell: |
     slmgr.vbs /skms {{ kms_server }}:{{ kms_port | default(1688) }}

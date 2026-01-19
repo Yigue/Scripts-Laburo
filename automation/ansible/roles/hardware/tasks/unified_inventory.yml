@@ -8,21 +8,28 @@
   ansible.windows.win_shell: |
     # Consultas filtradas nativamente
     $os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, SerialNumber
-    $cpu = Get-CimInstance Win32_Processor | Select-Object Name
+    $cpu = Get-CimInstance Win32_Processor | Select-Object Name -First 1
     $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" | Select-Object Size, FreeSpace
-    $net = Get-NetIPAddress -InterfaceAlias "Wi-Fi", "Ethernet" -AddressFamily IPv4 | Select-Object IPAddress, InterfaceAlias
+    $net = @()
+    try {
+        $net = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | 
+               Where-Object { $_.InterfaceAlias -like "*Wi-Fi*" -or $_.InterfaceAlias -like "*Ethernet*" } | 
+               Select-Object IPAddress, InterfaceAlias -First 5
+    } catch {
+        $net = @()
+    }
     
     [PSCustomObject]@{
         Hostname = $env:COMPUTERNAME
-        SO = $os.Caption
-        Version = $os.Version
-        Serial = $os.SerialNumber
-        CPU = $cpu.Name
-        Disk_Total_GB = [math]::Round($disk.Size / 1GB, 2)
-        Disk_Free_GB = [math]::Round($disk.FreeSpace / 1GB, 2)
+        SO = if ($os) { $os.Caption } else { "N/A" }
+        Version = if ($os) { $os.Version } else { "N/A" }
+        Serial = if ($os) { $os.SerialNumber } else { "N/A" }
+        CPU = if ($cpu) { $cpu.Name } else { "N/A" }
+        Disk_Total_GB = if ($disk -and $disk.Size) { [math]::Round($disk.Size / 1GB, 2) } else { "N/A" }
+        Disk_Free_GB = if ($disk -and $disk.FreeSpace) { [math]::Round($disk.FreeSpace / 1GB, 2) } else { "N/A" }
         Network = $net
         ReportTime = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    } | ConvertTo-Json
+    } | ConvertTo-Json -Depth 3
   register: unified_inv_raw
   changed_when: false
 

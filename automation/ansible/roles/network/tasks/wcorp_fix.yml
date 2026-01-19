@@ -4,12 +4,31 @@
 # Ejecuta script de WCORP + cleanDNS + gpupdate
 # ============================================================================
 
+- name: Verificar conectividad inicial
+  ansible.windows.win_shell: |
+    $ping = Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet -ErrorAction SilentlyContinue
+    if ($ping) {
+      Write-Output "OK"
+    } else {
+      Write-Output "FALLO"
+    }
+  register: connectivity_before
+  changed_when: false
+  failed_when: false
+
+- name: Advertencia sobre comandos que requieren reinicio
+  debug:
+    msg:
+      - "⚠️ ADVERTENCIA: Los comandos de reseteo (Winsock/IP) pueden requerir reinicio del equipo"
+      - "El comando gpupdate se ejecutará de forma asíncrona."
+      - "Conectividad inicial: {{ connectivity_before.stdout | default('N/A') }}"
+
 - name: Limpiar caché DNS
   ansible.windows.win_shell: |
     ipconfig /flushdns
     Write-Output "Cache DNS limpiado"
   register: dns_flush
-  changed_when: true
+  changed_when: false
 
 - name: Limpiar caché NetBIOS
   ansible.windows.win_shell: |
@@ -40,7 +59,12 @@
   register: gpupdate
   async: 120
   poll: 10
-  ignore_errors: true
+  failed_when: false
+
+- name: Verificar resultado de gpupdate
+  debug:
+    msg: "⚠️ GPUpdate puede haber fallado o estar ejecutándose en segundo plano. Revisar logs del equipo si hay problemas."
+  when: gpupdate.failed | default(false)
 
 - name: Verificar conectividad post-fix
   ansible.windows.win_shell: |
@@ -55,9 +79,22 @@
       $results += "$($test.Name): $(if ($ping) { 'OK' } else { 'FALLO' })"
     }
     
+    Write-Output "Conectividad inicial: {{ connectivity_before.stdout | default('N/A') }}"
     $results | ForEach-Object { Write-Output $_ }
   register: connectivity_test
   changed_when: false
+
+- name: Verificar errores en comandos críticos
+  debug:
+    msg:
+      - "⚠️ ADVERTENCIA: Algunos comandos pueden haber fallado:"
+      - "{{ '  • Reset Winsock falló' if (winsock_reset.failed | default(false)) else '' }}"
+      - "{{ '  • Reset IP falló' if (ip_reset.failed | default(false)) else '' }}"
+      - "{{ '  • GPUpdate falló' if (gpupdate.failed | default(false)) else '' }}"
+  when: 
+    - (winsock_reset.failed | default(false)) or 
+      (ip_reset.failed | default(false)) or 
+      (gpupdate.failed | default(false))
 
 - name: Resumen de WCORP Fix
   debug:
@@ -65,11 +102,14 @@
       - "=========================================="
       - "        WCORP FIX - RESULTADO"
       - "=========================================="
+      - "Conectividad inicial: {{ connectivity_before.stdout | default('N/A') }}"
       - "DNS Flush: {{ dns_flush.stdout | default('OK') }}"
       - "NetBIOS: {{ netbios_flush.stdout | default('OK') }}"
       - "Winsock: {{ winsock_reset.stdout | default('OK') }}"
       - "IP Reset: {{ ip_reset.stdout | default('OK') }}"
       - "GPUpdate: {{ gpupdate.stdout | default('OK') }}"
       - "----------------------------------------"
-      - "Pruebas de conectividad:"
+      - "Pruebas de conectividad post-fix:"
       - "{{ connectivity_test.stdout_lines | default(['Sin datos']) }}"
+      - "----------------------------------------"
+      - "⚠️ NOTA: Los comandos de reset (Winsock/IP) pueden requerir reinicio del equipo para aplicar cambios completamente."

@@ -2,10 +2,45 @@
 # ============================================================================
 # Playbook: Reporte Telecom WLC
 # ============================================================================
+# Genera reporte completo de telecomunicaciones desde WLC
+#
+# Variables requeridas:
+#   - wlc_host: Hostname o IP del Wireless Controller (opcional si está en inventario)
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/wlc/generate_telecom_report.yml \
+#     --extra-vars "wlc_host=192.168.1.10"
+# ============================================================================
 - name: Reporte Telecom
-  hosts: wlc_group
+  hosts: "{{ wlc_host | default('localhost') }}"
   gather_facts: no
+  
+  vars:
+    wlc_host_required: true
+  
   tasks:
+    - name: Validar que wlc_host esté definido
+      fail:
+        msg: |
+          La variable 'wlc_host' debe estar definida.
+          
+          Uso: --extra-vars "wlc_host=IP_O_HOSTNAME_DEL_WLC"
+          
+          Ejemplo: --extra-vars "wlc_host=192.168.1.10"
+      when: wlc_host is not defined or wlc_host == "" or wlc_host == "localhost"
+    
+    - name: Verificar que colección cisco.ios está instalada
+      fail:
+        msg: |
+          La colección 'cisco.ios' no está instalada.
+          
+          Instalar con:
+            ansible-galaxy collection install -r requirements.yml
+          
+          O directamente:
+            ansible-galaxy collection install cisco.ios
+      when: "'cisco.ios' not in ansible_collections"
+    
     - name: Ejecutar reporte
       include_role:
         name: wlc

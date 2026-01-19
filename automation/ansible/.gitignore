@@ -21,8 +21,10 @@ logs/
 *.retry
 
 # Variables sensibles (NUNCA subir)
-# NOTA: windows_hosts_vault.yml debe estar encriptado con ansible-vault
-# inventory/group_vars/windows_hosts_vault.yml
+# NOTA: Los archivos vault.yml están encriptados pero aún así NO deben subirse a git
+# inventory/group_vars/**/vault.yml
+inventory/group_vars/all/vault.yml
+*.vault.yml
 
 # Archivos temporales
 *.tmp

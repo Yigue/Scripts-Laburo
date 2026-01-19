@@ -41,7 +41,7 @@
       - "=========================================="
       - "     REPORTE DE PERFORMANCE (Optimizado)"
       - "=========================================="
-     - "CPU Score: {{ perf_results.CPU_Calc_Time_MS | round(2) }} ms"
+      - "CPU Score: {{ perf_results.CPU_Calc_Time_MS | round(2) }} ms"
       - "Disk Score: {{ perf_results.Disk_IO_Time_MS | round(2) }} ms"
       - "Espacio libre en C: {{ perf_results.Disk_Free_Percent }}%"
       - "Uso de Memoria: {{ perf_results.Load_Percentage | round(2) }}%"

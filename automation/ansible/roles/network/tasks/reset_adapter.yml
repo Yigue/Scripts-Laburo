@@ -4,17 +4,120 @@
 # Restablecer adaptador de red Wi-Fi
 # ============================================================================
 
-- name: Reiniciar adaptador Wi-Fi
+- name: Detectar adaptador usado para WinRM
   ansible.windows.win_shell: |
-    $adapter = Get-NetAdapter | Where-Object { $_.Name -like "*Wi-Fi*" -or $_.InterfaceDescription -like "*Wireless*" }
-    if ($adapter) {
-        Restart-NetAdapter -Name $adapter.Name -Confirm:$false
-        Write-Output "Adaptador $($adapter.Name) reiniciado correctamente"
+    $winrmIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+      $_.IPAddress -notlike '169.254.*' -and
+      $_.InterfaceAlias -notlike '*vEthernet*'
+    } | Select-Object -First 1)
+    
+    if ($winrmIP) {
+      $adapter = Get-NetAdapter -InterfaceIndex $winrmIP.InterfaceIndex -ErrorAction SilentlyContinue
+      if ($adapter) {
+        @{
+          name = $adapter.Name
+          description = $adapter.InterfaceDescription
+          isWiFi = ($adapter.InterfaceDescription -like '*Wireless*' -or $adapter.InterfaceDescription -like '*Wi-Fi*')
+        } | ConvertTo-Json
+      } else {
+        @{ name = "" } | ConvertTo-Json
+      }
     } else {
-        Write-Output "No se encontró adaptador Wi-Fi"
+      @{ name = "" } | ConvertTo-Json
+    }
+  register: winrm_adapter
+  changed_when: false
+  failed_when: false
+
+- name: Buscar adaptador Wi-Fi
+  ansible.windows.win_shell: |
+    $adapter = Get-NetAdapter | Where-Object { 
+      ($_.Name -like "*Wi-Fi*" -or $_.InterfaceDescription -like "*Wireless*") -and
+      $_.Status -eq 'Up'
+    } | Select-Object -First 1
+    
+    if ($adapter) {
+      @{
+        found = $true
+        name = $adapter.Name
+        description = $adapter.InterfaceDescription
+        status = $adapter.Status
+      } | ConvertTo-Json
+    } else {
+      @{
+        found = $false
+      } | ConvertTo-Json
+    }
+  register: wifi_adapter_info
+  changed_when: false
+  failed_when: false
+
+- name: Advertencia si vamos a desconectar WinRM
+  debug:
+    msg:
+      - "⚠️⚠️⚠️ ADVERTENCIA CRÍTICA ⚠️⚠️⚠️"
+      - "Se va a reiniciar el adaptador Wi-Fi '{{ (wifi_adapter_info.stdout | from_json | default({})).name | default('N/A') }}'"
+      - ""
+      - "Si estás conectado vía WinRM usando este adaptador, PERDERÁS LA CONEXIÓN."
+      - "Solo continuar si estás seguro o si tienes acceso físico al equipo."
+      - ""
+      - "Adaptador WinRM detectado: '{{ (winrm_adapter.stdout | from_json | default({})).name | default('N/A') }}'"
+  when: 
+    - wifi_adapter_info.stdout is defined
+    - (wifi_adapter_info.stdout | from_json | default({})).found | default(false) | bool
+
+- name: Advertir coincidencia de adaptadores
+  debug:
+    msg:
+      - "⚠️⚠️⚠️ ADVERTENCIA CRÍTICA ⚠️⚠️⚠️"
+      - "El adaptador Wi-Fi que se va a reiniciar ES el mismo usado para WinRM."
+      - "Reiniciar este adaptador DESCONECTARÁ la sesión remota."
+      - "Se OMITIRÁ el reinicio para evitar perder la conexión."
+  when: 
+    - wifi_adapter_info.stdout is defined
+    - winrm_adapter.stdout is defined
+    - (wifi_adapter_info.stdout | from_json | default({})).found | default(false) | bool
+    - (winrm_adapter.stdout | from_json | default({})).name | default('') != ''
+    - (wifi_adapter_info.stdout | from_json | default({})).name == (winrm_adapter.stdout | from_json | default({})).name
+
+- name: Reiniciar adaptador Wi-Fi (con validación)
+  ansible.windows.win_shell: |
+    $adapter = Get-NetAdapter | Where-Object { 
+      ($_.Name -like "*Wi-Fi*" -or $_.InterfaceDescription -like "*Wireless*") -and
+      $_.Status -eq 'Up'
+    } | Select-Object -First 1
+    
+    if ($adapter) {
+      $winrmAdapter = "{{ (winrm_adapter.stdout | from_json | default({})).name | default('') }}"
+      
+      if ($adapter.Name -eq $winrmAdapter -and $winrmAdapter -ne '') {
+        Write-Output "ERROR: No se puede reiniciar el adaptador usado para WinRM sin perder la conexión."
+        Write-Output "Adaptador: $($adapter.Name)"
+        exit 1
+      }
+      
+      Write-Output "Reiniciando adaptador: $($adapter.Name)"
+      Restart-NetAdapter -Name $adapter.Name -Confirm:$false
+      Start-Sleep -Seconds 5
+      Write-Output "Adaptador $($adapter.Name) reiniciado correctamente"
+    } else {
+      Write-Output "No se encontró adaptador Wi-Fi activo"
     }
   register: network_reset_result
+  failed_when: "'ERROR:' in network_reset_result.stdout"
+  when: 
+    - wifi_adapter_info.stdout is defined
+    - (wifi_adapter_info.stdout | from_json | default({})).found | default(false) | bool
+    - not ((wifi_adapter_info.stdout | from_json | default({})).name == (winrm_adapter.stdout | from_json | default({})).name)
+
+- name: Informar si no se encontró adaptador Wi-Fi
+  debug:
+    msg: "ℹ️ No se encontró adaptador Wi-Fi activo para reiniciar."
+  when: 
+    - wifi_adapter_info.stdout is defined
+    - not ((wifi_adapter_info.stdout | from_json | default({})).found | default(false) | bool)
 
 - name: Mostrar resultado de reinicio de adaptador
   debug:
-    msg: "{{ network_reset_result.stdout }}"
+    msg: "{{ network_reset_result.stdout | default('N/A') }}"
+  when: network_reset_result is defined

@@ -69,13 +69,41 @@
       return $results
     }
     
+    # Test de subida
+    function Test-UploadSpeed {
+      param([string]$Url, [int]$SizeMB = 5)
+      
+      try {
+        $testData = New-Object byte[] (1024 * 1024 * $SizeMB)
+        (new-object Random).NextBytes($testData)
+        
+        $webClient = New-Object System.Net.WebClient
+        $webClient.UploadTimeout = 30000  # 30 segundos
+        
+        $start = Get-Date
+        $response = $webClient.UploadData($Url, "POST", $testData)
+        $end = Get-Date
+        
+        $duration = ($end - $start).TotalSeconds
+        $speedMbps = (($SizeMB * 8) / $duration)
+        
+        return @{
+          success = $true
+          speed_mbps = [math]::Round($speedMbps, 2)
+          duration_s = [math]::Round($duration, 2)
+        }
+      } catch {
+        return @{ success = $false; error = $_.Exception.Message }
+      }
+    }
+    
     # Ejecutar tests
     $latencyHosts = @('8.8.8.8', '1.1.1.1', 'microsoft.com', 'google.com')
     $latencyResults = Test-Latency -Hosts $latencyHosts
     
-    # Test de descarga (usamos archivo de prueba de Microsoft o similar)
+    # Test de descarga (usamos archivo de prueba)
     $downloadTests = @(
-      @{ name = "Microsoft CDN"; url = "https://speed.cloudflare.com/__down?bytes=10000000" }
+      @{ name = "Cloudflare CDN"; url = "https://speed.cloudflare.com/__down?bytes=10000000" }
     )
     
     $downloadResults = @()
@@ -91,24 +119,61 @@
       }
     }
     
+    # Test de subida
+    $uploadTests = @(
+      @{ name = "HttpBin"; url = "https://httpbin.org/post" }
+    )
+    
+    $uploadResults = @()
+    foreach ($test in $uploadTests) {
+      Write-Host "Probando subida: $($test.name)..." -NoNewline
+      $result = Test-UploadSpeed -Url $test.url -SizeMB 5
+      $result.source = $test.name
+      $uploadResults += $result
+      if ($result.success) {
+        Write-Host " $($result.speed_mbps) Mbps"
+      } else {
+        Write-Host " Error"
+      }
+    }
+    
     # Calcular promedio de latencia
     $avgLatency = ($latencyResults | Where-Object { $_.success } | Measure-Object -Property avg_ms -Average).Average
     
-    # Mejor velocidad de descarga
+    # Calcular jitter correctamente (diferencia media entre latencias consecutivas)
+    $jitter = 0
+    $latenciesArray = ($latencyResults | Where-Object { $_.success } | ForEach-Object { $_.avg_ms })
+    if ($latenciesArray.Count -gt 1) {
+      $diffs = @()
+      for ($i = 1; $i -lt $latenciesArray.Count; $i++) {
+        $diffs += [Math]::Abs($latenciesArray[$i] - $latenciesArray[$i-1])
+      }
+      if ($diffs.Count -gt 0) {
+        $jitter = ($diffs | Measure-Object -Average).Average
+      }
+    }
+    
+    # Mejor velocidad de descarga y subida
     $bestDownload = ($downloadResults | Where-Object { $_.success } | Sort-Object -Property speed_mbps -Descending | Select-Object -First 1)
+    $bestUpload = ($uploadResults | Where-Object { $_.success } | Sort-Object -Property speed_mbps -Descending | Select-Object -First 1)
     
     @{
       timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
       latency = @{
-        average_ms = [math]::Round($avgLatency, 1)
+        average_ms = if ($avgLatency) { [math]::Round($avgLatency, 1) } else { 0 }
         details = $latencyResults
       }
       download = @{
-        speed_mbps = $bestDownload.speed_mbps
-        source = $bestDownload.source
+        speed_mbps = if ($bestDownload) { $bestDownload.speed_mbps } else { 0 }
+        source = if ($bestDownload) { $bestDownload.source } else { "N/A" }
         all_tests = $downloadResults
       }
-      jitter_ms = [math]::Round((($latencyResults | Where-Object { $_.success } | Measure-Object -Property max_ms -Maximum).Maximum - ($latencyResults | Where-Object { $_.success } | Measure-Object -Property min_ms -Minimum).Minimum) / 2, 1)
+      upload = @{
+        speed_mbps = if ($bestUpload) { $bestUpload.speed_mbps } else { 0 }
+        source = if ($bestUpload) { $bestUpload.source } else { "N/A" }
+        all_tests = $uploadResults
+      }
+      jitter_ms = [math]::Round($jitter, 1)
     } | ConvertTo-Json -Depth 4
   register: speedtest_raw
   changed_when: false
@@ -131,6 +196,10 @@
       - "   Velocidad: {{ speedtest.download.speed_mbps | default('N/A') }} Mbps"
       - "   Fuente: {{ speedtest.download.source | default('N/A') }}"
       - ""
+      - "📤 SUBIDA:"
+      - "   Velocidad: {{ speedtest.upload.speed_mbps | default('N/A') }} Mbps"
+      - "   Fuente: {{ speedtest.upload.source | default('N/A') }}"
+      - ""
       - "📊 LATENCIA:"
       - "   Promedio: {{ speedtest.latency.average_ms | default('N/A') }} ms"
       - "   Jitter: {{ speedtest.jitter_ms | default('N/A') }} ms"
@@ -150,7 +219,8 @@
       - "=========================================="
       - "     📋 EVALUACIÓN"
       - "=========================================="
-      - "{{ '✅ Velocidad excelente' if (speedtest.download.speed_mbps | default(0) | float) > 50 else ('✅ Velocidad buena' if (speedtest.download.speed_mbps | default(0) | float) > 20 else ('⚠️ Velocidad aceptable' if (speedtest.download.speed_mbps | default(0) | float) > 5 else '❌ Velocidad baja')) }}"
+      - "{{ '✅ Velocidad descarga excelente' if (speedtest.download.speed_mbps | default(0) | float) > 50 else ('✅ Velocidad descarga buena' if (speedtest.download.speed_mbps | default(0) | float) > 20 else ('⚠️ Velocidad descarga aceptable' if (speedtest.download.speed_mbps | default(0) | float) > 5 else '❌ Velocidad descarga baja')) }}"
+      - "{{ '✅ Velocidad subida excelente' if (speedtest.upload.speed_mbps | default(0) | float) > 25 else ('✅ Velocidad subida buena' if (speedtest.upload.speed_mbps | default(0) | float) > 10 else ('⚠️ Velocidad subida aceptable' if (speedtest.upload.speed_mbps | default(0) | float) > 3 else '❌ Velocidad subida baja')) }}"
       - "{{ '✅ Latencia excelente' if (speedtest.latency.average_ms | default(999) | float) < 30 else ('✅ Latencia buena' if (speedtest.latency.average_ms | default(999) | float) < 60 else ('⚠️ Latencia alta' if (speedtest.latency.average_ms | default(999) | float) < 100 else '❌ Latencia muy alta')) }}"
   when: speedtest is defined
 
@@ -158,5 +228,6 @@
   set_fact:
     speedtest_results:
       download_mbps: "{{ speedtest.download.speed_mbps | default(0) }}"
+      upload_mbps: "{{ speedtest.upload.speed_mbps | default(0) }}"
       latency_ms: "{{ speedtest.latency.average_ms | default(0) }}"
       jitter_ms: "{{ speedtest.jitter_ms | default(0) }}"

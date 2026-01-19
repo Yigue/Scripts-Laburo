@@ -13,8 +13,11 @@
 # ============================================================================
 
 - name: Calibrar Impresora Zebra
-  hosts: "{{ target_host | default('all') }}"
+  hosts: "{{ target_host }}"
   gather_facts: no
+  
+  vars:
+    target_host_required: true
   
   tasks:
     - name: Ejecutar calibración Zebra

@@ -1,4 +1,5 @@
 ---
 # Variables por defecto para el role de printers
 zebra_port: 9100
+zebra_default_port: "{{ zebra_port }}"
 spooler_restart_delay: 5
