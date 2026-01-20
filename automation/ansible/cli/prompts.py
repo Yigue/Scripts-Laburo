@@ -13,7 +13,7 @@ Contiene:
 from typing import Optional, List
 import questionary
 
-from .config import console, CUSTOM_STYLE
+from .shared.config import console, CUSTOM_STYLE
 
 
 def solicitar_hostname() -> Optional[str]:
@@ -45,7 +45,7 @@ def solicitar_vault_password() -> Optional[str]:
         str: La password ingresada o None si cancela/omite
     """
     from pathlib import Path
-    from .config import BASE_DIR
+    from .shared.config import BASE_DIR
     
     vault_pass_file = BASE_DIR / ".vault_pass"
     

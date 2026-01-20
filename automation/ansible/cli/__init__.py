@@ -2,36 +2,87 @@
 """
 cli/__init__.py
 ===============
-IT-Ops CLI - Paquete principal.
+IT-Ops CLI - Paquete principal (refactorizado con Clean Architecture).
 
-Este paquete contiene los módulos de la CLI de IT-Ops:
-- config: Configuración global (paths, logging, console)
-- models: Dataclasses para datos estructurados
-- menu_data: Definición del menú completo
-- ansible_runner: Funciones de ejecución de Ansible
-- display: Funciones de visualización con Rich
-- prompts: Funciones de entrada de usuario
-- menus: Funciones de navegación de menú
+Wrappers de compatibilidad para mantener retrocompatibilidad con imports antiguos.
 """
 
-from .config import BASE_DIR, console, logger, CUSTOM_STYLE
-from .models import MenuOption, MenuCategory, ExecutionResult, HostSnapshot
+# ============================================================================
+# Shared (Configuración)
+# ============================================================================
+from .shared.config import BASE_DIR, console, logger, CUSTOM_STYLE
+
+# ============================================================================
+# Domain (Modelos)
+# ============================================================================
+from .domain.models import MenuOption, MenuCategory, ExecutionResult, HostSnapshot, ExecutionStats
 from .menu_data import MENU_CATEGORIES
-from .ansible_runner import (
-    check_environment, validate_hostname, check_online, 
-    ejecutar_playbook, obtener_host_snapshot, repair_winrm_local
+
+# ============================================================================
+# Domain Services
+# ============================================================================
+from .domain.services.validation_service import check_environment, validate_hostname
+
+# ============================================================================
+# Infrastructure (Ansible)
+# ============================================================================
+from .infrastructure.ansible.playbook_executor import execute_playbook as _execute_playbook
+from .infrastructure.ansible.health_checker import check_host_online as _check_host_online, get_host_snapshot as _get_host_snapshot
+from .infrastructure.ansible.winrm_repair import repair_winrm_local
+
+# Wrappers de compatibilidad (usar nombres antiguos)
+def ejecutar_playbook(*args, **kwargs):
+    """Wrapper de compatibilidad para execute_playbook."""
+    return _execute_playbook(*args, **kwargs)
+
+def check_online(*args, **kwargs):
+    """Wrapper de compatibilidad para check_host_online."""
+    return _check_host_online(*args, **kwargs)
+
+def obtener_host_snapshot(*args, **kwargs):
+    """Wrapper de compatibilidad para get_host_snapshot."""
+    return _get_host_snapshot(*args, **kwargs)
+
+# Intentar importar ejecutar_playbook_nueva_ventana
+try:
+    from .infrastructure.terminal.terminal_detector import execute_playbook_in_new_window as ejecutar_playbook_nueva_ventana
+except ImportError:
+    ejecutar_playbook_nueva_ventana = None
+
+# ============================================================================
+# Presentation (Display)
+# ============================================================================
+from .presentation.display.utils import clear_screen, show_banner, show_menu_summary
+from .presentation.display.general_formatters import (
+    mostrar_resultado, mostrar_host_snapshot, mostrar_historial_sesion,
+    mostrar_dashboard_ejecucion, guardar_reporte
 )
-from .display import (
-    clear_screen, show_banner, show_menu_summary,
-    mostrar_resultado, mostrar_specs_tabla, 
+from .presentation.display.hardware_formatters import (
+    mostrar_specs_tabla, mostrar_updates_resultado,
+    mostrar_bitlocker_status_tabla, mostrar_auditoria_salud
+)
+from .presentation.display.admin_formatters import (
     mostrar_laps_resultado, mostrar_bitlocker_resultado,
-    mostrar_host_snapshot, mostrar_updates_resultado,
-    mostrar_bitlocker_status_tabla, mostrar_ad_info,
-    mostrar_dashboard_ejecucion, mostrar_audit_groups_resultado,
-    mostrar_auditoria_salud, guardar_reporte, mostrar_historial_sesion
+    mostrar_ad_info, mostrar_audit_groups_resultado
 )
+from .presentation.display.monitoring_formatters import (
+    mostrar_metricas_resultado, mostrar_health_resultado
+)
+
+# ============================================================================
+# Presentation (CLI - Menus)
+# ============================================================================
+from .presentation.cli.menus import mostrar_menu_categorias, mostrar_menu_opciones
+from .presentation.cli.menu_handler import ejecutar_opcion
+
+# ============================================================================
+# Presentation (Prompts)
+# ============================================================================
 from .prompts import solicitar_hostname, solicitar_vault_password, interactive_confirm, solicitar_targets
-from .menus import mostrar_menu_categorias, mostrar_menu_opciones, ejecutar_opcion
+
+# ============================================================================
+# Legacy modules (mantener por compatibilidad)
+# ============================================================================
 from .history import add_entry as history_add_entry, get_entries as history_get_entries
 from .task_manager import (
     add_task as task_add_task,

@@ -7,7 +7,7 @@ Gestión del historial de ejecuciones de la sesión usando funciones.
 
 from typing import List
 from datetime import datetime
-from .models import ExecutionStats, ExecutionResult
+from .domain.models import ExecutionStats, ExecutionResult
 
 
 # Estado global del módulo

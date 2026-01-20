@@ -8,7 +8,7 @@ Este archivo contiene MENU_CATEGORIES, la lista de todas las
 categorías y opciones disponibles en el menú interactivo.
 """
 
-from .models import MenuOption, MenuCategory
+from .domain.models import MenuOption, MenuCategory
 
 
 # ============================================================================

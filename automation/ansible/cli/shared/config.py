@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-cli/config.py
-=============
+shared/config.py
+================
 Configuración global de la aplicación.
 
 Contiene:
@@ -25,8 +25,16 @@ except ImportError as e:
     print("Ejecutar: pip install -r requirements.txt")
     sys.exit(1)
 
-# Directorio base del proyecto (un nivel arriba de cli/)
-BASE_DIR = Path(__file__).parent.parent.absolute()
+# Directorio base del proyecto
+# Si estamos ejecutando desde un .exe (PyInstaller), usar sys._MEIPASS
+# Si no, usar la ruta relativa al archivo
+if getattr(sys, 'frozen', False):
+    # Ejecutando como .exe compilado
+    BASE_DIR = Path(sys.executable).parent.absolute()
+else:
+    # Ejecutando como script Python
+    BASE_DIR = Path(__file__).parent.parent.parent.absolute()
+
 os.chdir(BASE_DIR)
 
 # Crear directorios necesarios

@@ -1,47 +1,63 @@
-# ============================================================================
-# IT-Ops CLI - .gitignore
-# ============================================================================
-
-# Archivos de Python
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec.bak
+*.spec.tmp
+
+# Entorno virtual
 venv/
-.venv/
+env/
+ENV/
 
-# Logs
-logs/
-*.log
-
-# Cache de Ansible
-.cache/
-*.retry
-
-# Variables sensibles (NUNCA subir)
-# NOTA: Los archivos vault.yml están encriptados pero aún así NO deben subirse a git
-# inventory/group_vars/**/vault.yml
-inventory/group_vars/all/vault.yml
-*.vault.yml
-
-# Archivos temporales
-*.tmp
-*.temp
-.DS_Store
-Thumbs.db
-.vault_pass
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
+*~
+
+# Logs y temporales
+logs/
+*.log
+.cache/
+*.tmp
+*.temp
+temp_vault.yml
+.cursor/
+
+# Archivos de Ansible
+*.retry
+.vault_pass
+
+# Archivos compilados
+*.exe
+dist/
+build/
 
 # Reportes generados
 reports/
-*.json.report
 
-# Backups
-*.bak
-*.backup
+# Archivos de sistema
+.DS_Store
+Thumbs.db

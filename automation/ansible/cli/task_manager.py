@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass
 
-from .models import ExecutionResult
+from .domain.models import ExecutionResult
 
 
 @dataclass

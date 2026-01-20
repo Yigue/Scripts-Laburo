@@ -13,7 +13,7 @@ from rich.live import Live
 from rich import box
 from rich.align import Align
 
-from .config import console
+from .shared.config import console
 from .task_manager import (
     get_summary as task_get_summary,
     get_active_tasks as task_get_active_tasks,
