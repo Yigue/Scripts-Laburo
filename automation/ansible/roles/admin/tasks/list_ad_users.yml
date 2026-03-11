@@ -1,33 +1,74 @@
 ---
 # ============================================================================
-# Role: admin - Task: list_ad_users (OPTIMIZADO)
-# Listar usuarios en Active Directory usando módulos nativos
+# Role: admin - Task: list_ad_users
+# Listar usuarios en Active Directory usando colección microsoft.ad
 # ============================================================================
 
-- name: Consultar usuarios de AD usando microsoft.ad.user_info
-  microsoft.ad.user_info:
-    filter: "{{ ad_filter | default('*') }}"
-    search_scope: subtree
-    search_base: "{{ ad_ou | default(omit) }}"
-    properties:
-      - LockedOut
-      - Enabled
-      - LastLogonDate
-      - PasswordLastSet
-  register: ad_users_raw
-  delegate_to: "{{ domain_controller | default(inventory_hostname) }}"
+- name: Validar que domain_controller esté definido
+  fail:
+    msg: |
+      La variable 'domain_controller' debe estar definida.
+      
+      Configurar en: inventory/group_vars/all.yml o pasar como:
+      --extra-vars "domain_controller=dc01.empresa.local"
+  when: domain_controller is not defined or domain_controller == ""
 
-- name: Parsear y formatear usuarios de AD
-  set_fact:
-    ad_users: >-
-      {{
-        ad_users_raw.users | map('dict2items') | map('items2dict') | list
-      }}
+- name: Verificar conectividad con Domain Controller
+  ansible.windows.win_ping:
+  delegate_to: "{{ domain_controller }}"
+  register: dc_ping
+  ignore_errors: true
+
+- name: Fallar si DC no es accesible
+  fail:
+    msg: "No se puede conectar al Domain Controller '{{ domain_controller }}'. Verifique conectividad y credenciales."
+  when: dc_ping.ping is not defined or dc_ping.ping != "pong"
+
+- name: Consultar usuarios de AD (microsoft.ad)
+  block:
+    - name: Obtener información de usuarios
+      microsoft.ad.object_info:
+        # Nota: Si el filtro es '*' se usa el filtro LDAP '(objectClass=user)'.
+        # Para filtros custom, usar sintaxis LDAP (ej: '(name=jdoe*)')
+        filter: "{{ '(objectClass=user)' if (ad_filter | default('*')) == '*' else ad_filter }}"
+        search_base: "{{ ad_ou | default(omit) }}"
+        properties:
+          - SamAccountName
+          - DisplayName
+          - Name
+          - EmailAddress
+          - LockedOut
+          - Enabled
+          - LastLogonDate
+          - PasswordLastSet
+      register: ad_query
+      delegate_to: "{{ domain_controller }}"
+
+    - name: Parsear resultado de usuarios AD
+      set_fact:
+        ad_users_result:
+          success: true
+          count: "{{ ad_query.objects | length }}"
+          users: "{{ ad_query.objects }}"
+
+  rescue:
+    - name: Capturar error
+      set_fact:
+        ad_users_result:
+          success: false
+          error: "Error consultando AD: {{ ansible_failed_result.msg | default('Error desconocido') }}"
+
+- name: Mostrar error si falló la consulta
+  fail:
+    msg: "Error consultando AD: {{ ad_users_result.error }}"
+  when: not ad_users_result.success
 
 - name: Mostrar lista de usuarios
   debug:
     msg:
       - "=========================================="
-      - "     USUARIOS ENCONTRADOS EN AD (Native)"
+      - "     USUARIOS ENCONTRADOS EN AD"
       - "=========================================="
-      - "{{ ad_users | list }}"
+      - "Total: {{ ad_users_result.count }} usuarios"
+      - "------------------------------------------"
+      - "{{ ad_users_result.users | list }}"

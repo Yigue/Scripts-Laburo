@@ -1,134 +1,52 @@
 ---
 # ============================================================================
 # Role: hardware - Task: specs
-# Obtiene especificaciones completas del sistema
+# Obtiene especificaciones usando ansible_facts + script auxiliar
 # ============================================================================
 
-- name: Obtener información del sistema
-  ansible.windows.win_shell: |
-    # Recolectar información del sistema (usando Get-CimInstance de forma consistente)
-    $systemInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
-    $biosInfo = Get-CimInstance -ClassName Win32_BIOS -ErrorAction SilentlyContinue
-    $processors = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue
-    $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
-    
-    # Obtener número de serie (validación mejorada)
-    $serialNumber = "No disponible"
-    if ($biosInfo -and $biosInfo.SerialNumber) {
-        $serialNumber = $biosInfo.SerialNumber
-    }
-    
-    # Procesador: manejar múltiples procesadores
-    $processorName = "N/A"
-    if ($processors) {
-        # Si hay múltiples, tomar el primero y agregar contador
-        $processorName = $processors[0].Name
-        if ($processors.Count -gt 1) {
-            $processorName = "$processorName ($($processors.Count) procesadores)"
-        }
-    }
-    
-    # Obtener parche de actualización
-    $path = "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\Packages"
-    $pkgs = Get-ChildItem $path -ErrorAction SilentlyContinue | 
-            Where-Object { $_.Name -match "Package_for_RollupFix" } | 
-            Sort-Object Name -Descending | 
-            Select-Object -First 1
-    
-    # Disco
-    $diskInfo = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue | 
-                Select-Object Model, @{Name="SizeGB";Expression={[math]::round($_.Size / 1GB, 2)}}
-    $logicalDisks = Get-CimInstance -ClassName Win32_LogicalDisk -ErrorAction SilentlyContinue | 
-                    Where-Object { $_.DriveType -eq 3 }
-    
-    # Red
-    $networkAdapters = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | 
-                       Where-Object { $_.IPEnabled -eq $true }
-    $wifiAdapter = $networkAdapters | Where-Object { $_.Description -match "Wi-Fi|Wireless" }
-    $wifiIP = if ($wifiAdapter -and $wifiAdapter.IPAddress) { $wifiAdapter.IPAddress -join ', ' } else { "No conectado" }
-    $ethernetAdapter = $networkAdapters | Where-Object { $_.Description -notmatch "Wi-Fi|Wireless" }
-    $ethernetIP = if ($ethernetAdapter -and $ethernetAdapter.IPAddress) { $ethernetAdapter.IPAddress -join ', ' } else { "No conectado" }
-    
-    # Version Windows (con fallback si DisplayVersion no existe)
-    $displayVersion = "N/A"
-    try {
-        $displayVersion = Get-ItemPropertyValue -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name DisplayVersion -ErrorAction Stop
-    } catch {
-        # Intentar obtener desde otra propiedad
-        try {
-            $displayVersion = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).ReleaseId
-        } catch {
-            $displayVersion = "N/A"
-        }
-    }
-    
-    $buildNumber = if ($osInfo -and $osInfo.BuildNumber) { $osInfo.BuildNumber } else { "N/A" }
-    $versionWinver = if ($pkgs -and $pkgs.PSChildName) { $pkgs.PSChildName -replace ".*~", "" } else { "N/A" }
-    
-    # Fecha instalación (validación mejorada)
-    $formattedInstallDate = "N/A"
-    if ($osInfo -and $osInfo.InstallDate) {
-        try {
-            $installDate = [DateTime]::ParseExact($osInfo.InstallDate.Split('.')[0], "yyyyMMddHHmmss", $null)
-            $formattedInstallDate = $installDate.ToString("dd/MM/yyyy HH:mm:ss")
-        } catch {
-            $formattedInstallDate = "N/A"
-        }
-    }
-    
-    # Espacio en disco
-    $diskC = $logicalDisks | Where-Object { $_.DeviceID -eq "C:" }
-    $freeSpaceGB = if ($diskC) { [math]::round($diskC.FreeSpace / 1GB, 2) } else { "N/A" }
-    $totalSpaceGB = if ($diskC) { [math]::round($diskC.Size / 1GB, 2) } else { "N/A" }
-    
-    # Validaciones de objetos antes de mostrar
-    $equipoName = if ($systemInfo -and $systemInfo.Name) { $systemInfo.Name } else { "N/A" }
-    $modelo = if ($systemInfo -and $systemInfo.Model) { $systemInfo.Model } else { "N/A" }
-    $fabricante = if ($systemInfo -and $systemInfo.Manufacturer) { $systemInfo.Manufacturer } else { "N/A" }
-    $ramGB = if ($systemInfo -and $systemInfo.TotalPhysicalMemory) { [math]::round($systemInfo.TotalPhysicalMemory / 1GB, 2) } else { "N/A" }
-    $biosVersion = if ($biosInfo -and $biosInfo.SMBIOSBIOSVersion) { $biosInfo.SMBIOSBIOSVersion } else { "N/A" }
-    $osCaption = if ($osInfo -and $osInfo.Caption) { $osInfo.Caption } else { "N/A" }
-    
-    # Output formateado
-    Write-Output "========================================================="
-    Write-Output "             ESPECIFICACIONES DEL SISTEMA"
-    Write-Output "========================================================="
-    Write-Output "Nombre del equipo: $equipoName"
-    Write-Output "Modelo del equipo: $modelo"
-    Write-Output "Fabricante: $fabricante"
-    Write-Output "Numero de Serie: $serialNumber"
-    Write-Output "Procesador: $processorName"
-    Write-Output "RAM (GB): $ramGB"
-    Write-Output "Version BIOS: $biosVersion"
-    Write-Output "Sistema Operativo: $osCaption"
-    Write-Output "Version Windows: $displayVersion (Build $buildNumber)"
-    Write-Output "Parche: $versionWinver"
-    Write-Output "Fecha Instalacion: $formattedInstallDate"
-    Write-Output "IP Wi-Fi: $wifiIP"
-    Write-Output "IP Ethernet: $ethernetIP"
-    Write-Output "========================================================="
-    Write-Output "                 INFORMACION DEL DISCO"
-    Write-Output "========================================================="
-    Write-Output "Disco C Total: $totalSpaceGB GB"
-    Write-Output "Disco C Libre: $freeSpaceGB GB"
-    
-    if ($diskInfo) {
-        $diskInfo | ForEach-Object {
-            $diskModel = if ($_.Model) { $_.Model } else { "N/A" }
-            $diskSize = if ($_.SizeGB) { $_.SizeGB } else { "N/A" }
-            Write-Output "Modelo Disco: $diskModel"
-            Write-Output "Tamano Disco: $diskSize GB"
-        }
-    }
-  register: system_specs
-  changed_when: false
-  failed_when: false
+- name: Recolectar hechos (si no están presentes)
+  ansible.builtin.setup:
+    gather_subset:
+      - hardware
+      - system
+  when: ansible_facts['memtotal_mb'] is not defined
 
-- name: Validar que se obtuvo información
-  fail:
-    msg: "No se pudo obtener información del sistema. Verificar conectividad y permisos."
-  when: system_specs.rc != 0 or system_specs.stdout_lines is not defined or system_specs.stdout_lines | length == 0
+- name: Ejecutar script de detalles adicionales (fechas, parches, red)
+  ansible.builtin.script: files/get_specs.ps1
+  args:
+    executable: powershell
+  register: script_result
+  changed_when: false
+
+- name: Procesar datos del script
+  set_fact:
+    win_specs: "{{ script_result.stdout | from_json }}"
+    disk_c: "{{ ansible_facts['mounts'] | selectattr('mount', 'search', 'C:') | list | first | default({}) }}"
 
 - name: Mostrar especificaciones
   debug:
-    msg: "{{ system_specs.stdout_lines }}"
+    msg:
+      - "========================================================="
+      - "             ESPECIFICACIONES DEL SISTEMA"
+      - "========================================================="
+      - "Nombre del equipo: {{ ansible_facts['nodename'] | default('N/A') }}"
+      - "Modelo del equipo: {{ ansible_facts['product_name'] | default('N/A') }}"
+      - "Fabricante:      {{ ansible_facts['system_vendor'] | default('N/A') }}"
+      - "Numero de Serie: {{ ansible_facts['product_serial'] | default('N/A') }}"
+      - "Procesador:      {{ ansible_facts['processor'][0] | default('N/A') }}"
+      - "RAM (GB):        {{ (ansible_facts['memtotal_mb'] / 1024) | round(2) }}"
+      - "Version BIOS:    {{ ansible_facts['bios_version'] | default('N/A') }}"
+      - "Sistema Operativo: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+      - "Version Windows: {{ win_specs.DisplayVersion }} (Build {{ ansible_facts['os_build'] | default('N/A') }})"
+      - "Parche:          {{ win_specs.LatestPatch }}"
+      - "Fecha Instalacion: {{ win_specs.InstallDate }}"
+      - "Ultimo Reinicio: {{ win_specs.LastBoot }}"
+      - "========================================================="
+      - "                 RED (Adaptadores Físicos/Activos)"
+      - "========================================================="
+      - "{{ win_specs.Adapters | to_nice_yaml }}"
+      - "========================================================="
+      - "                 INFORMACION DEL DISCO"
+      - "========================================================="
+      - "Disco C Total: {{ ((disk_c.size_total | default(0)) / 1024 / 1024 / 1024) | round(2) }} GB"
+      - "Disco C Libre: {{ ((disk_c.size_available | default(0)) / 1024 / 1024 / 1024) | round(2) }} GB"

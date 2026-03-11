@@ -1,0 +1,275 @@
+---
+# ============================================================================
+# Role: admin - Task: full_maintenance
+# Mantenimiento completo del equipo (Combo de todas las acciones)
+# ============================================================================
+# Ejecuta en secuencia:
+#   1. gpupdate /force (Políticas de grupo)
+#   2. Flush DNS
+#   3. Limpieza de archivos temporales
+#   4. Limpieza de caché de Windows Update
+#   5. Trigger de ciclos SCCM principales
+#   6. Verificación de servicios críticos
+#   7. Reparación rápida de red
+#   8. Sincronización de hora
+# ============================================================================
+
+- name: "=== INICIO DE MANTENIMIENTO COMPLETO ==="
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "     MANTENIMIENTO COMPLETO DEL EQUIPO"
+      - "=========================================="
+      - "Inicio: {{ ansible_date_time.iso8601 | default('N/A') }}"
+      - "Hostname: {{ inventory_hostname }}"
+      - "=========================================="
+
+# ============================================================================
+# 1. GPUPDATE /FORCE - Actualizar políticas de grupo
+# ============================================================================
+- name: "1/8 - Ejecutar gpupdate /force"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Ejecutando gpupdate /force..."
+    $result = gpupdate /force 2>&1
+    Write-Output $result
+    Write-Output ">>> gpupdate completado"
+  register: gpupdate_result
+  failed_when: false
+  changed_when: true
+
+# ============================================================================
+# 2. FLUSH DNS - Limpiar caché DNS
+# ============================================================================
+- name: "2/8 - Limpiar caché DNS"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Limpiando caché DNS..."
+    ipconfig /flushdns
+    Write-Output ">>> Caché DNS limpiado"
+  register: dns_flush_result
+  failed_when: false
+  changed_when: true
+
+# ============================================================================
+# 3. LIMPIEZA DE TEMPORALES
+# ============================================================================
+- name: "3/8 - Limpiar archivos temporales"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Limpiando archivos temporales..."
+    
+    $folders = @(
+      "$env:TEMP",
+      "C:\Windows\Temp",
+      "C:\Windows\Prefetch"
+    )
+    
+    $totalDeleted = 0
+    $totalErrors = 0
+    
+    foreach ($folder in $folders) {
+      if (Test-Path $folder) {
+        try {
+          $files = Get-ChildItem $folder -Recurse -Force -ErrorAction SilentlyContinue
+          foreach ($file in $files) {
+            try {
+              Remove-Item $file.FullName -Force -Recurse -ErrorAction SilentlyContinue
+              $totalDeleted++
+            } catch {
+              $totalErrors++
+            }
+          }
+          Write-Output "  - $folder limpiado"
+        } catch {
+          Write-Output "  - $folder: Error al limpiar"
+        }
+      }
+    }
+    
+    Write-Output ">>> Archivos eliminados: $totalDeleted (Errores: $totalErrors)"
+  register: temp_cleanup_result
+  failed_when: false
+  changed_when: true
+
+# ============================================================================
+# 4. LIMPIEZA DE CACHÉ WINDOWS UPDATE
+# ============================================================================
+- name: "4/8 - Limpiar caché de Windows Update"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Limpiando caché de Windows Update..."
+    
+    try {
+      Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds 2
+      
+      if (Test-Path "C:\Windows\SoftwareDistribution\Download") {
+        Remove-Item "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Output "  - Carpeta Download limpiada"
+      }
+      
+      Start-Service wuauserv -ErrorAction SilentlyContinue
+      Write-Output ">>> Caché de Windows Update limpiado"
+    } catch {
+      Write-Output ">>> Error limpiando caché de WU: $($_.Exception.Message)"
+    }
+  register: wu_cache_result
+  failed_when: false
+  changed_when: true
+
+# ============================================================================
+# 5. TRIGGER DE CICLOS SCCM PRINCIPALES
+# ============================================================================
+- name: "5/8 - Ejecutar ciclos SCCM principales"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Ejecutando ciclos SCCM..."
+    
+    # IDs de los ciclos SCCM más importantes
+    $sccmCycles = @{
+      "Machine Policy Retrieval" = "{00000000-0000-0000-0000-000000000021}"
+      "Machine Policy Evaluation" = "{00000000-0000-0000-0000-000000000022}"
+      "Hardware Inventory" = "{00000000-0000-0000-0000-000000000001}"
+      "Software Inventory" = "{00000000-0000-0000-0000-000000000002}"
+      "Discovery Data Collection" = "{00000000-0000-0000-0000-000000000003}"
+      "Software Updates Scan" = "{00000000-0000-0000-0000-000000000113}"
+      "Software Updates Deployment" = "{00000000-0000-0000-0000-000000000108}"
+    }
+    
+    $successCount = 0
+    $failCount = 0
+    
+    foreach ($cycle in $sccmCycles.GetEnumerator()) {
+      try {
+        $null = Invoke-CimMethod -Namespace "root\ccm" -ClassName "SMS_Client" -MethodName "TriggerSchedule" -Arguments @{ sScheduleID = $cycle.Value } -ErrorAction Stop
+        Write-Output "  ✓ $($cycle.Key)"
+        $successCount++
+        Start-Sleep -Milliseconds 500
+      } catch {
+        Write-Output "  ✗ $($cycle.Key): $($_.Exception.Message)"
+        $failCount++
+      }
+    }
+    
+    Write-Output ">>> Ciclos SCCM: $successCount exitosos, $failCount con error"
+  register: sccm_trigger_result
+  failed_when: false
+  ignore_errors: true
+
+# ============================================================================
+# 6. VERIFICAR SERVICIOS CRÍTICOS
+# ============================================================================
+- name: "6/8 - Verificar y reiniciar servicios críticos"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Verificando servicios críticos..."
+    
+    $criticalServices = @(
+      "BITS",         # Background Intelligent Transfer Service
+      "wuauserv",     # Windows Update
+      "CcmExec",      # SCCM Client
+      "Winmgmt",      # WMI
+      "Spooler",      # Print Spooler
+      "LanmanWorkstation"  # Workstation
+    )
+    
+    $restarted = 0
+    $running = 0
+    $notFound = 0
+    
+    foreach ($svc in $criticalServices) {
+      try {
+        $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
+        if ($service) {
+          if ($service.Status -ne 'Running') {
+            Start-Service -Name $svc -ErrorAction SilentlyContinue
+            Write-Output "  ▲ $svc: Iniciado"
+            $restarted++
+          } else {
+            Write-Output "  ✓ $svc: Running"
+            $running++
+          }
+        } else {
+          Write-Output "  - $svc: No encontrado"
+          $notFound++
+        }
+      } catch {
+        Write-Output "  ✗ $svc: Error"
+      }
+    }
+    
+    Write-Output ">>> Servicios: $running running, $restarted iniciados, $notFound no encontrados"
+  register: services_result
+  failed_when: false
+
+# ============================================================================
+# 7. REPARACIÓN RÁPIDA DE RED
+# ============================================================================
+- name: "7/8 - Reparación rápida de red"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Reparación rápida de red..."
+    
+    # Registrar DNS
+    try {
+      ipconfig /registerdns
+      Write-Output "  ✓ DNS registrado"
+    } catch {
+      Write-Output "  ✗ Error registrando DNS"
+    }
+    
+    # Verificar conectividad
+    $dcPing = Test-Connection -ComputerName (Get-ADDomainController -Discover -Service "PrimaryDC" -ErrorAction SilentlyContinue).HostName.Value -Count 1 -Quiet -ErrorAction SilentlyContinue
+    $internetPing = Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet -ErrorAction SilentlyContinue
+    
+    Write-Output "  - Conectividad a DC: $(if ($dcPing) { 'OK' } else { 'N/A o Fallo' })"
+    Write-Output "  - Conectividad a Internet: $(if ($internetPing) { 'OK' } else { 'Fallo' })"
+    
+    Write-Output ">>> Reparación de red completada"
+  register: network_repair_result
+  failed_when: false
+
+# ============================================================================
+# 8. SINCRONIZACIÓN DE HORA
+# ============================================================================
+- name: "8/8 - Sincronizar hora con dominio"
+  ansible.windows.win_shell: |
+    Write-Output ">>> Sincronizando hora..."
+    
+    try {
+      # Reiniciar servicio de tiempo
+      Stop-Service w32time -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Seconds 1
+      Start-Service w32time -ErrorAction SilentlyContinue
+      
+      # Resincronizar
+      w32tm /resync /force 2>&1 | Out-Null
+      
+      $currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+      Write-Output "  ✓ Hora sincronizada: $currentTime"
+    } catch {
+      Write-Output "  ✗ Error sincronizando hora: $($_.Exception.Message)"
+    }
+    
+    Write-Output ">>> Sincronización completada"
+  register: time_sync_result
+  failed_when: false
+
+# ============================================================================
+# RESUMEN FINAL
+# ============================================================================
+- name: "=== RESUMEN DE MANTENIMIENTO COMPLETO ==="
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "     MANTENIMIENTO COMPLETO - RESUMEN"
+      - "=========================================="
+      - ""
+      - "1. GPUPDATE /FORCE:     {{ '✓ OK' if gpupdate_result.rc | default(0) == 0 else '✗ Error' }}"
+      - "2. FLUSH DNS:           {{ '✓ OK' if dns_flush_result.rc | default(0) == 0 else '✗ Error' }}"
+      - "3. LIMPIEZA TEMPORALES: {{ '✓ OK' if temp_cleanup_result.rc | default(0) == 0 else '✗ Error' }}"
+      - "4. CACHÉ WINDOWS UPDATE:{{ '✓ OK' if wu_cache_result.rc | default(0) == 0 else '✗ Error' }}"
+      - "5. CICLOS SCCM:         {{ '✓ OK' if sccm_trigger_result.rc | default(0) == 0 else '⚠ Parcial/Error' }}"
+      - "6. SERVICIOS CRÍTICOS:  {{ '✓ OK' if services_result.rc | default(0) == 0 else '✗ Error' }}"
+      - "7. REPARACIÓN RED:      {{ '✓ OK' if network_repair_result.rc | default(0) == 0 else '✗ Error' }}"
+      - "8. SINCRONIZACIÓN HORA: {{ '✓ OK' if time_sync_result.rc | default(0) == 0 else '✗ Error' }}"
+      - ""
+      - "=========================================="
+      - "  Mantenimiento completo finalizado"
+      - "  Se recomienda reiniciar el equipo"
+      - "  para aplicar todos los cambios."
+      - "=========================================="

@@ -122,8 +122,8 @@ def mostrar_menu_opciones(categoria: MenuCategory) -> Optional[MenuOption]:
     shortcut_keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
     
     for idx, opt in enumerate(categoria.options):
-        # Mostrar clave de opción (A1, H1, etc.) como prefijo visible
-        display_label = f"[{opt.key}] {opt.label}" if opt.key else opt.label
+        # Mostrar solo el label sin prefijo de clave
+        display_label = opt.label
         
         # Asignar atajo numérico para las primeras 9 opciones
         if idx < 9:
@@ -134,9 +134,9 @@ def mostrar_menu_opciones(categoria: MenuCategory) -> Optional[MenuOption]:
                 shortcut_key=shortcut
             ))
         else:
-            # Para más de 9 opciones, usar el número completo como parte del título
+            # Para más de 9 opciones, mostrar solo el label sin número
             choices.append(questionary.Choice(
-                title=f"[{idx+1}] {opt.label}",
+                title=opt.label,
                 value=opt
             ))
     

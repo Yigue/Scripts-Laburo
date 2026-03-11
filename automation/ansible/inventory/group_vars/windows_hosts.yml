@@ -7,22 +7,10 @@
 # ============================================================================
 
 # ============================================================================
-# Active Directory & Domain (NUEVO)
+# Active Directory & Domain (MOVIDO A group_vars/all/common.yml)
 # ============================================================================
-# Domain Controller (FQDN o IP)
-domain_controller: "dc01.empresa.local"
+# Las variables de dominio ahora son globales para que funcionen en localhost
 
-# Nombre del dominio
-domain_name: "empresa.local"
-
-# OU donde están las computadoras para búsqueda de LAPS
-laps_ou: "OU=Computadoras,DC=empresa,DC=local"
-
-# OU donde buscar claves de recuperación BitLocker
-bitlocker_ou: "OU=Computadoras,DC=empresa,DC=local"
-
-# Timeout para operaciones de AD (segundos)
-ad_timeout: 30
 
 # ============================================================================
 # Timeouts (en segundos)

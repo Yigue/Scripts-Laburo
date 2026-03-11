@@ -5,27 +5,64 @@
   connection: local
   gather_facts: no
   tasks:
-    - name: Consultar AD para el equipo
-      ansible.windows.win_shell: |
-        try {
-            $computer = Get-ADComputer -Identity "{{ target_host }}" -Properties OperatingSystem, OperatingSystemVersion, WhenCreated, LastLogonDate, IPv4Address, DistinguishedName
-            if ($computer) {
-                @{
-                    name = $computer.Name
-                    os = $computer.OperatingSystem
-                    os_version = $computer.OperatingSystemVersion
-                    created = $computer.WhenCreated.ToString("yyyy-MM-dd HH:mm:ss")
-                    last_logon = $computer.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss")
-                    ip = $computer.IPv4Address
-                    dn = $computer.DistinguishedName
-                } | ConvertTo-Json
-            }
-        } catch {
-            @{ error = $_.Exception.Message } | ConvertTo-Json
-        }
-      register: ad_computer_info
-      delegate_to: localhost # Asumiendo que WSL tiene acceso a AD o se ejecuta desde un host con AD
-    
+    - name: Validar variables requeridas
+      fail:
+        msg: "La variable 'target_host' no está definida. Pase el nombre del equipo con --extra-vars 'target_host=NOMBRE_PC'"
+      when: target_host is not defined or target_host == ""
+
+    - name: Validar domain_controller
+      fail:
+        msg: "La variable 'domain_controller' no está definida en el inventario."
+      when: domain_controller is not defined or domain_controller == ""
+
+    - name: Consultar AD para el equipo (microsoft.ad)
+      microsoft.ad.object_info:
+        filter: "(&(objectClass=computer)(name={{ target_host }}))"
+        properties:
+          - Name
+          - OperatingSystem
+          - OperatingSystemVersion
+          - WhenCreated
+          - LastLogonDate
+          - IPv4Address
+          - DistinguishedName
+      register: ad_query
+      delegate_to: "{{ domain_controller }}"
+      vars:
+        ansible_user: "{{ vault_ansible_user }}"
+        ansible_password: "{{ vault_ansible_password }}"
+        ansible_connection: winrm
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+
+    - name: Mostrar error si no se encuentra
+      fail:
+        msg: "Equipo '{{ target_host }}' no encontrado en AD."
+      when: ad_query.objects | length == 0
+
+    - name: Formatear salida JSON
+      set_fact:
+        ad_computer_info:
+          name: "{{ ad_query.objects[0].Name }}"
+          os: "{{ ad_query.objects[0].OperatingSystem }}"
+          os_version: "{{ ad_query.objects[0].OperatingSystemVersion }}"
+          created: "{{ ad_query.objects[0].WhenCreated }}"
+          last_logon: "{{ ad_query.objects[0].LastLogonDate }}"
+          ip: "{{ ad_query.objects[0].IPv4Address }}"
+          dn: "{{ ad_query.objects[0].DistinguishedName }}"
+
     - name: Mostrar Info de AD
       debug:
-        msg: "{{ ad_computer_info.stdout | from_json }}"
+        msg:
+          - "=========================================="
+          - "   INFORMACIÓN ACTIVE DIRECTORY"
+          - "=========================================="
+          - "Nombre AD: {{ ad_computer_info.name | default('N/A') }}"
+          - "DNS Hostname: {{ ad_query.objects[0].DNSHostName | default('N/A') }}"
+          - "OS: {{ ad_computer_info.os | default('N/A') }}"
+          - "Versión OS: {{ ad_computer_info.os_version | default('N/A') }}"
+          - "Creado: {{ ad_computer_info.created | default('N/A') }}"
+          - "Último Login: {{ ad_computer_info.last_logon | default('N/A') }}"
+          - "IP en AD: {{ ad_computer_info.ip | default('N/A') }}"
+          - "DN: {{ ad_computer_info.dn | default('N/A') }}"
+          - "=========================================="

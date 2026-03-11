@@ -5,7 +5,23 @@
 # ============================================================================
 # Variables:
 #   sccm_device_name: Nombre del equipo (opcional, default inventory_hostname)
+#   sccm_server: Servidor SCCM (requerido)
+#   sccm_site_code: Código del sitio SCCM (requerido)
 # ============================================================================
+
+- name: Validar variables de SCCM
+  fail:
+    msg: |
+      Las variables de SCCM deben estar definidas:
+      
+      - sccm_server: Servidor SCCM (ej: sccm01.empresa.local)
+      - sccm_site_code: Código del sitio (ej: ABC)
+      
+      Configurar en: inventory/group_vars/all.yml o pasar como:
+      --extra-vars "sccm_server=sccm01.empresa.local sccm_site_code=ABC"
+  when: 
+    - sccm_server is not defined or sccm_server == ""
+    - or sccm_site_code is not defined or sccm_site_code == ""
 
 - name: Consultar colecciones del equipo en SCCM
   ansible.windows.win_shell: |
@@ -26,10 +42,27 @@
     }
   register: sccm_collections_raw
   changed_when: false
+  failed_when: false
+  delegate_to: "{{ sccm_server }}"
+  vars:
+    ansible_user: "{{ vault_ansible_user }}"
+    ansible_password: "{{ vault_ansible_password }}"
+    ansible_connection: winrm
+    ansible_port: 135
+    ansible_winrm_transport: ntlm
+    ansible_winrm_server_cert_validation: ignore
 
 - name: Parsear colecciones SCCM
   set_fact:
     sccm_collections: "{{ sccm_collections_raw.stdout | from_json }}"
+  when: sccm_collections_raw.stdout is defined
+
+- name: Mostrar error si falló la consulta
+  fail:
+    msg: "Error consultando SCCM: {{ sccm_collections.error | default('Error desconocido') }}"
+  when: 
+    - sccm_collections is defined
+    - sccm_collections.error is defined
 
 - name: Mostrar colecciones SCCM
   debug:
@@ -37,4 +70,4 @@
       - "=========================================="
       - "     COLECCIONES SCCM DEL EQUIPO: {{ sccm_device_name | default(inventory_hostname) }}"
       - "=========================================="
-      - "{{ sccm_collections | list }}"
+      - "{{ sccm_collections | list if sccm_collections is defined else 'No se encontraron colecciones' }}"

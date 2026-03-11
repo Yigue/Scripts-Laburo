@@ -1,0 +1,226 @@
+---
+# ============================================================================
+# Role: software - Task: uninstall_app
+# Desinstala una aplicación específica del sistema
+# ============================================================================
+# Variables:
+#   app_name: Nombre de la aplicación a desinstalar (búsqueda parcial)
+# ============================================================================
+
+- name: Verificar que se proporcionó el nombre de la aplicación
+  fail:
+    msg: "Debe proporcionar 'app_name' con el nombre de la aplicación a desinstalar"
+  when: app_name is not defined or app_name == ""
+
+- name: Buscar aplicación a desinstalar
+  ansible.windows.win_shell: |
+    $searchName = "{{ app_name }}"
+    $apps = @()
+    
+    # Buscar en registro (32-bit y 64-bit)
+    $paths = @(
+      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+      "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    
+    foreach ($path in $paths) {
+      Get-ItemProperty $path -ErrorAction SilentlyContinue | 
+      Where-Object { 
+        $_.DisplayName -and 
+        $_.DisplayName -like "*$searchName*" -and
+        $_.UninstallString
+      } |
+      ForEach-Object {
+        $apps += [PSCustomObject]@{
+          Name = $_.DisplayName
+          Version = $_.DisplayVersion
+          Publisher = $_.Publisher
+          UninstallString = $_.UninstallString
+          QuietUninstallString = $_.QuietUninstallString
+          GUID = $_.PSChildName
+        }
+      }
+    }
+    
+    # Eliminar duplicados
+    $uniqueApps = $apps | Sort-Object Name -Unique
+    
+    # Crear objeto de resultado
+    $result = [PSCustomObject]@{
+      Status = ""
+      Count = $uniqueApps.Count
+      Message = ""
+      Apps = @()
+      SelectedApp = $null
+    }
+    
+    if ($uniqueApps.Count -eq 0) {
+      $result.Status = "NOT_FOUND"
+      $result.Message = "No se encontró ninguna aplicación que coincida con '$searchName'"
+      Write-Output "=========================================="
+      Write-Output "  RESULTADO DE BÚSQUEDA"
+      Write-Output "=========================================="
+      Write-Output $result.Message
+      Write-Output ""
+      Write-Output "Sugerencia: Verifique el nombre de la aplicación o use 'Listar aplicaciones instaladas' para ver todas las aplicaciones disponibles."
+    } elseif ($uniqueApps.Count -eq 1) {
+      # Una sola coincidencia, usar esa
+      $app = $uniqueApps[0]
+      $result.Status = "FOUND"
+      $result.Message = "Aplicación encontrada: $($app.Name)"
+      $result.SelectedApp = $app
+      
+      Write-Output "=========================================="
+      Write-Output "  APLICACIÓN ENCONTRADA"
+      Write-Output "=========================================="
+      Write-Output "Nombre: $($app.Name)"
+      Write-Output "Versión: $($app.Version)"
+      Write-Output "Editor: $($app.Publisher)"
+      Write-Output ""
+      Write-Output "Se procederá a desinstalar esta aplicación."
+      
+      # Convertir a JSON para pasarlo a la siguiente tarea
+      Write-Output "---JSON_START---"
+      $app | ConvertTo-Json -Depth 10
+      Write-Output "---JSON_END---"
+    } else {
+      # Múltiples coincidencias, mostrar lista
+      $result.Status = "MULTIPLE"
+      $result.Message = "Se encontraron $($uniqueApps.Count) aplicaciones que coinciden con '$searchName'"
+      $result.Apps = $uniqueApps
+      
+      Write-Output "=========================================="
+      Write-Output "  MÚLTIPLES APLICACIONES ENCONTRADAS"
+      Write-Output "=========================================="
+      Write-Output $result.Message
+      Write-Output ""
+      Write-Output "Aplicaciones encontradas:"
+      Write-Output ""
+      $i = 1
+      foreach ($app in $uniqueApps) {
+        Write-Output "[$i] $($app.Name)"
+        Write-Output "    Versión: $($app.Version)"
+        Write-Output "    Editor: $($app.Publisher)"
+        Write-Output ""
+        $i++
+      }
+      Write-Output "=========================================="
+      Write-Output "Para desinstalar una aplicación específica, use el nombre completo"
+      Write-Output "tal como aparece en la lista anterior."
+      Write-Output "Ejemplo: Si busca 'Dell' y aparece 'Dell Command | Update',"
+      Write-Output "         use 'Dell Command | Update' como nombre de aplicación."
+    }
+    
+    # Salir siempre con código 0 para que Ansible no falle
+    exit 0
+  register: app_search_result
+  changed_when: false
+  failed_when: false
+
+- name: Extraer información de aplicación encontrada
+  set_fact:
+    app_info_json: "{{ app_search_result.stdout | regex_search('(?s)---JSON_START---(.*?)---JSON_END---', '\\1') | trim }}"
+  when: "'---JSON_START---' in app_search_result.stdout"
+
+- name: Parsear JSON de aplicación
+  set_fact:
+    app_info: "{{ app_info_json | from_json }}"
+  when: app_info_json is defined and app_info_json != ""
+
+- name: Mostrar mensaje cuando no se encontró aplicación
+  debug:
+    msg: "{{ app_search_result.stdout_lines }}"
+  when: "'NOT_FOUND' in app_search_result.stdout or 'MÚLTIPLES' in app_search_result.stdout"
+  failed_when: false
+
+- name: Fallar si no se encontró aplicación única
+  fail:
+    msg: |
+      {{ app_search_result.stdout_lines | join('\n') }}
+      
+      Por favor, ejecute nuevamente con un nombre más específico de la aplicación.
+  when: app_info is not defined or app_info == ""
+
+- name: Desinstalar aplicación
+  ansible.windows.win_shell: |
+    $app = @{
+      Name = "{{ app_info.Name }}"
+      UninstallString = "{{ app_info.UninstallString }}"
+      QuietUninstallString = "{{ app_info.QuietUninstallString | default('') }}"
+      GUID = "{{ app_info.GUID }}"
+    }
+    
+    Write-Output "=========================================="
+    Write-Output "  DESINSTALANDO: $($app.Name)"
+    Write-Output "=========================================="
+    
+    # Intentar usar QuietUninstallString si está disponible
+    if ($app.QuietUninstallString) {
+      Write-Output "Usando desinstalación silenciosa..."
+      $uninstallCmd = $app.QuietUninstallString
+    } else {
+      Write-Output "Usando comando de desinstalación estándar..."
+      $uninstallCmd = $app.UninstallString
+    }
+    
+    # Detectar si es MSI (por GUID o comando)
+    if ($app.GUID -match '^\{[0-9A-F-]+\}$' -or $uninstallCmd -like "*msiexec*") {
+      Write-Output "Aplicación MSI detectada"
+      if ($app.GUID -match '^\{[0-9A-F-]+\}$') {
+        $guid = $app.GUID
+        Write-Output "Desinstalando con GUID: $guid"
+        $process = Start-Process msiexec.exe -ArgumentList "/x $guid /qn /norestart" -Wait -PassThru
+      } else {
+        # Extraer GUID del comando si está presente
+        if ($uninstallCmd -match '\{([0-9A-F-]+)\}') {
+          $guid = $matches[1]
+          Write-Output "Desinstalando con GUID extraído: {$guid}"
+          $process = Start-Process msiexec.exe -ArgumentList "/x {$guid} /qn /norestart" -Wait -PassThru
+        } else {
+          Write-Output "Ejecutando comando MSI directamente..."
+          $process = Start-Process cmd.exe -ArgumentList "/c $uninstallCmd" -Wait -PassThru
+        }
+      }
+    } else {
+      # Aplicación no-MSI, ejecutar comando directamente
+      Write-Output "Ejecutando comando de desinstalación..."
+      
+      # Intentar extraer el ejecutable y argumentos
+      if ($uninstallCmd -match '^"([^"]+)"(.*)$') {
+        $exe = $matches[1]
+        $args = $matches[2].Trim()
+        
+        # Agregar flags silenciosos comunes si no están presentes
+        if ($args -notmatch '/S|/SILENT|/VERYSILENT|/qn') {
+          if ($exe -like "*uninstall*") {
+            $args = "/S " + $args
+          }
+        }
+        
+        Write-Output "Ejecutable: $exe"
+        Write-Output "Argumentos: $args"
+        $process = Start-Process $exe -ArgumentList $args -Wait -PassThru
+      } else {
+        # Comando simple, ejecutar directamente
+        $process = Start-Process cmd.exe -ArgumentList "/c $uninstallCmd" -Wait -PassThru
+      }
+    }
+    
+    if ($process.ExitCode -eq 0) {
+      Write-Output "Desinstalación completada exitosamente"
+    } elseif ($process.ExitCode -eq 3010) {
+      Write-Output "Desinstalación completada. Reinicio requerido (código 3010)"
+    } else {
+      Write-Output "ADVERTENCIA: La desinstalación terminó con código de salida $($process.ExitCode)"
+      Write-Output "Esto puede indicar que la aplicación ya estaba desinstalada o hubo un problema"
+    }
+    
+    Write-Output "Código de salida: $($process.ExitCode)"
+  register: uninstall_result
+  changed_when: uninstall_result.rc == 0 or (uninstall_result.stdout is defined and "completada" in uninstall_result.stdout)
+  when: app_info is defined and app_info != ""
+
+- name: Mostrar resultado de desinstalación
+  debug:
+    msg: "{{ uninstall_result.stdout_lines }}"
+  when: app_info is defined and app_info != "" and uninstall_result is defined

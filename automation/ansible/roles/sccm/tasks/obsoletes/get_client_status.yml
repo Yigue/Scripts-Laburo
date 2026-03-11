@@ -21,10 +21,12 @@
     }
   register: sccm_client_status_raw
   changed_when: false
+  failed_when: false
 
 - name: Parsear estado cliente SCCM
   set_fact:
     sccm_client_status: "{{ sccm_client_status_raw.stdout | from_json }}"
+  when: sccm_client_status_raw.stdout is defined
 
 - name: Mostrar estado cliente SCCM
   debug:
@@ -32,4 +34,8 @@
       - "=========================================="
       - "     ESTADO DEL CLIENTE SCCM"
       - "=========================================="
-     - "{{ sccm_client_status }}"
+      - "{{ 'Cliente SCCM instalado' if (sccm_client_status.Installed | default(false)) else 'Cliente SCCM NO instalado' }}"
+      - "{{ 'Versión: ' + sccm_client_status.Version if sccm_client_status.Version is defined else '' }}"
+      - "{{ 'Estado del servicio: ' + sccm_client_status.ServiceStatus if sccm_client_status.ServiceStatus is defined else '' }}"
+      - "{{ 'Código de sitio: ' + sccm_client_status.SiteCode if sccm_client_status.SiteCode is defined else '' }}"
+      - "{{ 'Error: ' + sccm_client_status.error if sccm_client_status.error is defined else '' }}"

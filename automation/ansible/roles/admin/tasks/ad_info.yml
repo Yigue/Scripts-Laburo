@@ -1,0 +1,89 @@
+---
+# ============================================================================
+# Role: admin - Task: ad_info
+# Consultar información de equipo en Active Directory
+# ============================================================================
+# Muestra información detallada del equipo desde AD:
+# - Nombre y Distinguished Name
+# - Sistema Operativo y versión
+# - Fecha de creación
+# - Último login
+# - Dirección IP (si está disponible)
+# ============================================================================
+
+- name: Validar que domain_controller esté definido
+  fail:
+    msg: "Variable 'domain_controller' no está definida. Debe configurarse en inventory/group_vars/all/common.yml"
+  when: domain_controller is not defined or domain_controller == ""
+
+- name: Verificar conectividad con Domain Controller
+  ansible.windows.win_ping:
+  delegate_to: "{{ domain_controller }}"
+  register: dc_ping
+  ignore_errors: yes
+
+- name: Fallar si DC no es accesible
+  fail:
+    msg: "No se puede conectar al Domain Controller '{{ domain_controller }}'. Verifique conectividad y credenciales."
+  when: dc_ping.ping is not defined or dc_ping.ping != "pong"
+
+- name: Obtener información del equipo desde AD
+  microsoft.ad.object_info:
+    domain_server: "{{ domain_controller }}"
+    domain_username: "{{ vault_ansible_user | default(ansible_user) }}"
+    domain_password: "{{ vault_ansible_password | default(ansible_password) }}"
+    filter: "(&(objectClass=computer)(cn={{ target_host }}))"
+    properties:
+      - cn
+      - name
+      - distinguishedName
+      - operatingSystem
+      - operatingSystemVersion
+      - whenCreated
+      - lastLogonTimestamp
+      - dNSHostName
+      - IPv4Address
+      - description
+  register: computer_query
+  delegate_to: "{{ domain_controller }}"
+
+- name: Debug raw AD object (for troubleshooting)
+  debug:
+    var: computer_query.objects[0]
+  when: computer_query.objects | length > 0
+
+- name: Verificar si el equipo existe en AD
+  fail:
+    msg: "Equipo '{{ target_host }}' no encontrado en Active Directory"
+  when: computer_query.objects | length == 0
+
+- name: Parsear información del equipo
+  set_fact:
+    computer_info: "{{ computer_query.objects[0] }}"
+
+- name: Convertir lastLogonTimestamp a fecha legible
+  set_fact:
+    last_logon_readable: "{{ 'Nunca' if (computer_info.lastLogonTimestamp is not defined or computer_info.lastLogonTimestamp == 0) else ((computer_info.lastLogonTimestamp | int / 10000000 - 11644473600) | int | community.general.epochtodate) }}"
+  when: computer_info is defined
+
+- name: Convertir whenCreated a fecha legible
+  set_fact:
+    when_created_readable: "{{ computer_info.whenCreated | default('N/A') }}"
+  when: computer_info is defined
+
+- name: Mostrar información del equipo en AD
+  debug:
+    msg:
+      - "=========================================="
+      - "   INFORMACIÓN ACTIVE DIRECTORY"
+      - "=========================================="
+      - "Nombre AD: {{ computer_info.name | default('N/A') }}"
+      - "DNS Hostname: {{ computer_info.dNSHostName | default('N/A') }}"
+      - "OS: {{ computer_info.operatingSystem | default('N/A') }}"
+      - "Versión OS: {{ computer_info.operatingSystemVersion | default('N/A') }}"
+      - "Creado: {{ when_created_readable }}"
+      - "Último Login: {{ last_logon_readable }}"
+      - "IP en AD: {{ computer_info.IPv4Address | default('N/A') }}"
+      - "Descripción: {{ computer_info.description | default('N/A') }}"
+      - "DN: {{ computer_info.distinguishedName | default('N/A') }}"
+      - "=========================================="

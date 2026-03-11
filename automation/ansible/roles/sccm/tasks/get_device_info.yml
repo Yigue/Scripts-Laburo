@@ -1,43 +1,71 @@
 ---
-# ============================================================================
+# =====================================================================
 # Role: sccm - Task: get_device_info
-# Consultar información detallada de un equipo en SCCM
-# ============================================================================
-# Variables:
-#   sccm_device_name: Nombre del equipo
-# ============================================================================
+# Consultar información detallada de un equipo en SCCM (desde el SCCM Server)
+# =====================================================================
 
 - name: Verificar que se proporcionó el nombre del equipo
   fail:
     msg: "Debe proporcionar el nombre del equipo con --extra-vars 'sccm_device_name=EQUIPO'"
-  when: sccm_device_name is not defined or sccm_device_name == ""
+  when: sccm_device_name is not defined or (sccm_device_name | trim) == ""
 
-- name: Consultar info de equipo en SCCM
+- name: Validar variables de SCCM
+  fail:
+    msg: |
+      Las variables de SCCM deben estar definidas:
+      - sccm_server: Servidor SCCM (ej: sccm01.empresa.local)
+      - sccm_site_code: Código del sitio (ej: PRI)
+  when: >
+    (sccm_server is not defined) or ((sccm_server | trim) == "") or
+    (sccm_site_code is not defined) or ((sccm_site_code | trim) == "")
+
+- name: Copiar script de consulta SCCM al servidor (Bypass Antivirus)
+  ansible.windows.win_copy:
+    src: "files/Get-CMDeviceInfo.ps1"
+    dest: "C:\\Temp\\Get-CMDeviceInfo.ps1"
+    force: yes
+
+- name: Desbloquear script (Unblock-File) para evitar bloqueos de seguridad
   ansible.windows.win_shell: |
-    $name = "{{ sccm_device_name }}"
-    $namespace = "root\sms\site_{{ sccm_site_code }}"
-    
-    try {
-        $device = Get-CimInstance -ComputerName "{{ sccm_server }}" -Namespace $namespace -Query "SELECT * FROM SMS_R_System WHERE Name = '$name'" -ErrorAction Stop
-        if ($device) {
-            $device | ConvertTo-Json
-        } else {
-            @{ error = "Dispositivo '$name' no encontrado en SCCM" } | ConvertTo-Json
-        }
-    } catch {
-        @{ error = $_.Exception.Message } | ConvertTo-Json
-    }
-  register: sccm_device_info_raw
+    Unblock-File -Path "C:\Temp\Get-CMDeviceInfo.ps1"
   changed_when: false
 
-- name: Parsear info de equipo SCCM
-  set_fact:
-    sccm_device_info: "{{ sccm_device_info_raw.stdout | from_json }}"
+- name: Ejecutar script de consulta SCCM con Bypass de política
+  ansible.windows.win_shell: |
+    PowerShell.exe -ExecutionPolicy Bypass -File "C:\Temp\Get-CMDeviceInfo.ps1" -DeviceName "{{ sccm_device_name }}" -SiteCode "{{ sccm_site_code }}" -SccmServer "{{ sccm_server }}"
+  register: sccm_script_result
+  changed_when: false
 
-- name: Mostrar info de equipo SCCM
+- name: Procesar resultado de SCCM
+  set_fact:
+    sccm_output: "{{ sccm_script_result.stdout | from_json }}"
+  when: sccm_script_result.stdout | length > 0
+
+- name: Mostrar Información del Dispositivo
   debug:
-    msg:
+    msg: 
       - "=========================================="
       - "     INFORMACIÓN DE EQUIPO EN SCCM"
       - "=========================================="
-      - "{{ sccm_device_info }}"
+      - "Encontrado:          {{ sccm_output.found | default(false) }}"
+      - "Nombre:              {{ sccm_output.data.Name | default('N/A') }}"
+      - "Resource ID:         {{ sccm_output.data.ResourceId | default('N/A') }}"
+      - "Es Cliente:          {{ sccm_output.data.IsClient | default('N/A') }}"
+      - "Tipo Cliente:        {{ sccm_output.data.ClientType | default('N/A') }}"
+      - "Versión Cliente:     {{ sccm_output.data.ClientVersion | default('N/A') }}"
+      - "Última Actividad:    {{ sccm_output.data.LastActiveTime | default('N/A') }}"
+      - "Último Usuario:      {{ sccm_output.data.LastLogonUserName | default('N/A') }}"
+      - "Usuario Primario:    {{ sccm_output.data.PrimaryUser | default('N/A') }}"
+      - "Sitio AD:            {{ sccm_output.data.ADSiteName | default('N/A') }}"
+      - "=========================================="
+  when: sccm_output.found | default(false)
+
+- name: Alerta si no se encuentra
+  debug:
+    msg: "⚠️  {{ sccm_output.message | default(sccm_output.error | default('Error desconocido')) }}"
+  when: not (sccm_output.found | default(false))
+
+- name: Limpiar script temporal
+  ansible.windows.win_file:
+    path: "C:\\Temp\\Get-CMDeviceInfo.ps1"
+    state: absent

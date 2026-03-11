@@ -14,6 +14,10 @@
   ansible.windows.win_file:
     path: "{{ logs_folder | default('C:\\Temp\\Logs') }}"
     state: directory
+- name: Copiar archivo de configuración
+  ansible.windows.win_copy:
+    src: "{{ role_path }}/../common/files/configure.yml"
+    dest: "C:\\Temp\\configure.yml"
 
 - name: Desactivar hibernación
   ansible.windows.win_shell: |
@@ -37,9 +41,15 @@
   changed_when: "'configurado' in power_result.stdout"
   ignore_errors: true
 
-- name: Verificar Dell Command Update instalado
+- name: Verificar Dell Command Update instalado si
   include_tasks: "{{ role_path }}/../common/tasks/check_dell_command_update.yml"
   ignore_errors: true
+ 
+- name: Instalar Dell Command Update si no está instalado y ejecutar actualizaciones
+  include_tasks: "{{ role_path }}/../common/tasks/install_dell_command_update.yml"
+  ignore_errors: true
+
+
 
 - name: Verificar estado de BitLocker
   include_tasks: "{{ role_path }}/../common/tasks/check_bitlocker_status.yml"

@@ -1,0 +1,19 @@
+---
+# ============================================================================
+# Playbook: Desinstalar Aplicación
+# ============================================================================
+# Desinstala una aplicación específica del sistema
+#
+# Uso:
+#   ansible-playbook -i inventory/hosts.ini playbooks/software/uninstall_app.yml \
+#     --extra-vars "target_host=HOSTNAME app_name=NombreAplicacion"
+# ============================================================================
+
+- name: Desinstalar Aplicación
+  hosts: "{{ target_host | default('all') }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar desinstalación
+      include_role:
+        name: software
+        tasks_from: uninstall_app.yml

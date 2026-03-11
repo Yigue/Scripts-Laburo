@@ -34,56 +34,61 @@ MENU_CATEGORIES = [
                 "Obtiene la contraseña LAPS del administrador local desde AD",
                 action_type="read-only"
             ),
-            MenuOption(
-                "A3", "Ver clave BitLocker Recovery (AD)", "admin/get_bitlocker_key.yml",
-                "Obtiene la clave de recuperación BitLocker (48 dígitos) desde AD",
-                action_type="read-only"
-            ),
+            # MenuOption(
+            #     "A3", "Ver clave BitLocker Recovery (AD)", "admin/get_bitlocker_key.yml",
+            #     "Obtiene la clave de recuperación BitLocker (48 dígitos) desde AD",
+            #     action_type="read-only"
+            # ),
             MenuOption(
                 "A4", "Info de Equipo en AD", "admin/ad_info.yml",
                 "Consulta datos del equipo en Active Directory (OS, creación, login)",
-                action_type="read-only"
+                action_type="read-only", requires_hostname=True
             ),
+            # MenuOption(
+            #     "A5", "Estado de BitLocker", "admin/bitlocker_status.yml",
+            #     "Verifica el estado de cifrado y protectores en C:",
+            #     action_type="read-only"
+            # ),
+            # MenuOption(
+            #     "A6", "Auditoría de Grupos de AD", "admin/audit_groups.yml",
+            #     "Muestra los grupos de seguridad en los que está el equipo",
+            #     action_type="read-only"
+            # ),
+            # MenuOption(
+            #     "A7", "Auditoría de usuarios inactivos", "admin/audit_inactive.yml",
+            #     "Lista usuarios de AD que no han iniciado sesión recientemente",
+            #     action_type="read-only"
+            # ),
+            # MenuOption(
+            #     "A8", "Exportar reporte de AD", "admin/export_ad_report.yml",
+            #     "Genera un reporte completo de equipos en Active Directory",
+            #     action_type="read-only"
+            # ),
+            # MenuOption(
+            #     "A9", "Obtener miembros de grupo AD", "admin/get_group_members.yml",
+            #     "Lista todos los miembros de un grupo de seguridad de AD",
+            #     requires_input=True, input_prompt="Nombre del grupo AD", input_var_name="group_name",
+            #     action_type="read-only", requires_hostname=False
+            # ),
+            # MenuOption(
+            #     "A10", "Listar computadoras en AD", "admin/list_ad_computers.yml",
+            #     "Lista todas las computadoras registradas en Active Directory",
+            #     action_type="read-only", requires_hostname=False
+            # ),
+            # MenuOption(
+            #     "A11", "Listar usuarios en AD", "admin/list_ad_users.yml",
+            #     "Lista todos los usuarios registrados en Active Directory",
+            #     action_type="read-only", requires_hostname=False
+            # ),
+            # MenuOption(
+            #     "A12", "Validar atributos de AD", "admin/validate_attributes.yml",
+            #     "Verifica que los atributos requeridos estén presentes en objetos AD",
+            #     action_type="read-only"
+            # ),
             MenuOption(
-                "A5", "Estado de BitLocker", "admin/bitlocker_status.yml",
-                "Verifica el estado de cifrado y protectores en C:",
-                action_type="read-only"
-            ),
-            MenuOption(
-                "A6", "Auditoría de Grupos de AD", "admin/audit_groups.yml",
-                "Muestra los grupos de seguridad en los que está el equipo",
-                action_type="read-only"
-            ),
-            MenuOption(
-                "A7", "Auditoría de usuarios inactivos", "admin/audit_inactive.yml",
-                "Lista usuarios de AD que no han iniciado sesión recientemente",
-                action_type="read-only"
-            ),
-            MenuOption(
-                "A8", "Exportar reporte de AD", "admin/export_ad_report.yml",
-                "Genera un reporte completo de equipos en Active Directory",
-                action_type="read-only"
-            ),
-            MenuOption(
-                "A9", "Obtener miembros de grupo AD", "admin/get_group_members.yml",
-                "Lista todos los miembros de un grupo de seguridad de AD",
-                requires_input=True, input_prompt="Nombre del grupo AD", input_var_name="group_name",
-                action_type="read-only", requires_hostname=False
-            ),
-            MenuOption(
-                "A10", "Listar computadoras en AD", "admin/list_ad_computers.yml",
-                "Lista todas las computadoras registradas en Active Directory",
-                action_type="read-only", requires_hostname=False
-            ),
-            MenuOption(
-                "A11", "Listar usuarios en AD", "admin/list_ad_users.yml",
-                "Lista todos los usuarios registrados en Active Directory",
-                action_type="read-only", requires_hostname=False
-            ),
-            MenuOption(
-                "A12", "Validar atributos de AD", "admin/validate_attributes.yml",
-                "Verifica que los atributos requeridos estén presentes en objetos AD",
-                action_type="read-only"
+                "A13", "🔧 Mantenimiento Completo", "admin/full_maintenance.yml",
+                "Ejecuta TODAS las acciones de mantenimiento: gpupdate, flush DNS, limpieza, ciclos SCCM, servicios, sincronización de hora",
+                action_type="modify"
             ),
         ]
     ),
@@ -125,16 +130,16 @@ MENU_CATEGORIES = [
                 "Activa Windows con KMS",
                 action_type="modify"
             ),
-            MenuOption(
-                "H7", "Salud de Batería (Laptop)", "hardware/battery_health.yml",
-                "Genera reporte de salud de batería (solo laptops)",
-                action_type="read-only"
-            ),
-            MenuOption(
-                "H8", "Reporte SMART de Disco", "hardware/disk_smart.yml",
-                "Diagnóstico S.M.A.R.T. de discos duros y SSD",
-                action_type="read-only"
-            ),
+            # MenuOption(
+            #     "H7", "Salud de Batería (Laptop)", "hardware/battery_health.yml",
+            #     "Genera reporte de salud de batería (solo laptops)",
+            #     action_type="read-only"
+            # ),
+            # MenuOption(
+            #     "H8", "Reporte SMART de Disco", "hardware/disk_smart.yml",
+            #     "Diagnóstico S.M.A.R.T. de discos duros y SSD",
+            #     action_type="read-only"
+            # ),
             MenuOption(
                 "H9", "Buscar Windows Updates", "hardware/check_updates.yml",
                 "Busca actualizaciones de Windows pendientes sin instalar",
@@ -200,15 +205,17 @@ MENU_CATEGORIES = [
                 "Test de velocidad de Internet (descarga, latencia, jitter)",
                 action_type="read-only"
             ),
-            MenuOption(
-                "R5", "Ver consumo de ancho de banda", "network/bandwidth_usage.yml",
-                "Estadísticas de uso de red en tiempo real",
-                action_type="read-only"
-            ),
+    
             MenuOption(
                 "R6", "Resetear adaptador de red", "network/reset_adapter.yml",
                 "Reinicia el adaptador de red especificado",
                 action_type="modify"
+            ),
+            MenuOption(
+                "R7", "Resolver nombre/IP", "network/resolve_host.yml",
+                "Convierte IP a Hostname y viceversa",
+                requires_input=True, input_prompt="IP o Hostname a resolver", input_var_name="target_host_dns",
+                action_type="read-only", requires_hostname=False
             ),
         ]
     ),
@@ -236,14 +243,15 @@ MENU_CATEGORIES = [
                 action_type="modify"
             ),
             MenuOption(
-                "S4", "Gestionar aplicaciones", "software/manage_apps.yml",
-                "Listar, buscar y desinstalar aplicaciones",
-                action_type="modify"
-            ),
-            MenuOption(
-                "S5", "Listar aplicaciones instaladas", "software/list_apps.yml",
+                "S4", "Listar aplicaciones instaladas", "software/list_apps.yml",
                 "Exporta una lista completa del software instalado",
                 action_type="read-only"
+            ),
+            MenuOption(
+                "S5", "Desinstalar aplicación", "software/uninstall_app.yml",
+                "Desinstala una aplicación específica del sistema",
+                requires_input=True, input_prompt="Nombre de la aplicación a desinstalar", input_var_name="app_name",
+                action_type="destructive", requires_hostname=True
             ),
             MenuOption(
                 "S6", "Limpieza profunda de temporales", "software/deep_clean.yml",

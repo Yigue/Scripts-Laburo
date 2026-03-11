@@ -3,7 +3,7 @@
 # Playbook: Info de Dispositivo en SCCM
 # ============================================================================
 - name: Info de Dispositivo en SCCM
-  hosts: localhost
+  hosts: target
   gather_facts: no
   tasks:
     - name: Consultar equipo en SCCM

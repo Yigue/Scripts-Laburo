@@ -5,3 +5,4 @@
 
 # Archivos de ejemplo (sí se suben al repositorio)
 !.env.example
+automation/scripts/sccm/*

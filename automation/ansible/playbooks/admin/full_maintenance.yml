@@ -1,0 +1,19 @@
+---
+# Playbook para Mantenimiento Completo del Equipo
+# Ejecuta todas las acciones de mantenimiento en secuencia:
+#   - gpupdate /force
+#   - Flush DNS
+#   - Limpieza de temporales
+#   - Caché Windows Update
+#   - Ciclos SCCM
+#   - Servicios críticos
+#   - Reparación de red
+#   - Sincronización de hora
+- name: Mantenimiento Completo del Equipo
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - name: Ejecutar mantenimiento completo
+      include_role:
+        name: admin
+        tasks_from: full_maintenance.yml

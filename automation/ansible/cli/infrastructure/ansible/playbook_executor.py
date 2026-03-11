@@ -17,7 +17,7 @@ from typing import Optional, Dict
 
 from ...shared.config import BASE_DIR, logger, console
 from ...domain.models import ExecutionResult
-from ..ansible.vault_manager import decrypt_vault
+from ..ansible.vault_manager import decrypt_vault, load_common_vars
 from ..ansible.inventory_builder import build_dynamic_inventory
 from ...infrastructure.logging.debug_logger import debug_logger
 
@@ -106,10 +106,11 @@ def execute_playbook(
     
     # Construir comando base
     if uses_localhost:
-        # Para playbooks que usan localhost, usar inventario localhost
+        # Para playbooks que usan localhost, forzar conexión local explícitamente
         cmd = [
             "ansible-playbook",
             "-i", "localhost,",
+            "-c", "local",  # Forzar conexión local para evitar SSH
             str(full_playbook_path)
         ]
     else:
@@ -117,13 +118,15 @@ def execute_playbook(
         cmd = [
             "ansible-playbook",
             "-i", inventory_file.name,
-            str(full_playbook_path),
-            "--extra-vars", f"target_host={hostname}"
+            str(full_playbook_path)
         ]
     
-    # Para playbooks SCCM que usan localhost, pasar hostname como sccm_device_name
-    if uses_localhost and "sccm" in playbook_path:
-        if hostname and hostname != "localhost":
+    # Pasar target_host universalmente si existe hostname (solución genérica)
+    if hostname and hostname != "localhost":
+        cmd.extend(["--extra-vars", f"target_host={hostname}"])
+        
+        # Para playbooks SCCM que también esperan sccm_device_name
+        if "sccm" in playbook_path:
             cmd.extend(["--extra-vars", f"sccm_device_name={hostname}"])
     
     # Agregar variables extra del usuario
@@ -138,6 +141,17 @@ def execute_playbook(
         vault_file.write(vault_password)
         vault_file.close()
         cmd.extend(["--vault-password-file", vault_file.name])
+        
+        # Para playbooks localhost, pasar vault vars como extra vars (necesario para delegate_to)
+        if uses_localhost and vault_vars:
+            for key, value in vault_vars.items():
+                cmd.extend(["--extra-vars", f"{key}={value}"])
+    
+    # Para playbooks localhost, también pasar common vars (sccm_server, domain_controller, etc.)
+    if uses_localhost:
+        common_vars = load_common_vars()
+        for key, value in common_vars.items():
+            cmd.extend(["--extra-vars", f"{key}={value}"])
 
     logger.info(f"Ejecutando: {' '.join([c for c in cmd if 'password' not in c.lower()])}")
 

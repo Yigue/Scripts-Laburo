@@ -1,0 +1,61 @@
+---
+# ============================================================================
+# Role: network - Task: resolve_host
+# Resolver nombre de host a IP y viceversa
+# ============================================================================
+# Requiere: Variable 'target_host_dns' con la IP o Hostname a resolver
+# ============================================================================
+
+- name: Verificar que se proporcionó el objetivo
+  fail:
+    msg: "Debe proporcionar el objetivo a resolver en 'target_host_dns'"
+  when: target_host_dns is not defined or target_host_dns == ""
+
+- name: Resolver DNS (IP <-> Hostname)
+  ansible.windows.win_shell: |
+    $target = "{{ target_host_dns }}"
+    
+    # Función helper para validar IP
+    function Test-IsIP {
+        param([string]$InputString)
+        return $InputString -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
+    }
+
+    $isIp = Test-IsIP -InputString $target
+    
+    Write-Output "=========================================="
+    Write-Output "     RESULTADO DE RESOLUCIÓN DNS"
+    Write-Output "=========================================="
+    
+    try {
+        if ($isIp) {
+            Write-Output "Modo: IP -> Hostname"
+            Write-Output "Consultando IP: $target"
+            $entry = [System.Net.Dns]::GetHostEntry($target)
+            Write-Output "Hostname resuelto: $($entry.HostName)"
+            if ($entry.Aliases.Count -gt 0) {
+                Write-Output "Alias: $($entry.Aliases -join ', ')"
+            }
+        } else {
+            Write-Output "Modo: Hostname -> IP"
+            Write-Output "Consultando Hostname: $target"
+            $addresses = [System.Net.Dns]::GetHostAddresses($target)
+            if ($addresses.Count -gt 0) {
+                foreach ($addr in $addresses) {
+                    Write-Output "IP resuelta: $($addr.IPAddressToString)"
+                }
+            } else {
+                Write-Output "No se encontraron direcciones IP."
+            }
+        }
+    } catch {
+        Write-Output "❌ Error: No se pudo resolver '$target'."
+        Write-Output "Detalle: $($_.Exception.Message)"
+    }
+    Write-Output "=========================================="
+  register: dns_result
+  changed_when: false
+
+- name: Mostrar resultado
+  debug:
+    msg: "{{ dns_result.stdout_lines }}"

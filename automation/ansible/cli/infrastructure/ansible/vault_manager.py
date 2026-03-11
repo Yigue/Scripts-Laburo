@@ -123,3 +123,33 @@ def decrypt_vault(vault_password: Optional[str] = None) -> Dict[str, str]:
         return {}
     
     return {}
+
+
+def load_common_vars() -> Dict[str, str]:
+    """
+    Carga las variables de group_vars/all/common.yml.
+    
+    Returns:
+        Dict con las variables comunes (sccm_server, domain_controller, etc.)
+    """
+    common_file = BASE_DIR / "inventory" / "group_vars" / "all" / "common.yml"
+    if not common_file.exists():
+        logger.warning("Archivo common.yml no encontrado")
+        return {}
+    
+    try:
+        with open(common_file, 'r') as f:
+            common_vars = yaml.safe_load(f)
+            if common_vars and isinstance(common_vars, dict):
+                debug_logger.log(
+                    "infrastructure/ansible/vault_manager.py:108",
+                    "Common vars cargadas",
+                    {"keys": list(common_vars.keys())},
+                    hypothesis_id="E"
+                )
+                return common_vars
+    except Exception as e:
+        logger.warning(f"Error cargando common.yml: {e}")
+    
+    return {}
+

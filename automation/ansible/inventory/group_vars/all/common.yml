@@ -1,0 +1,28 @@
+# ============================================================================
+# Variables Globales (Comunes para todos los hosts y localhost)
+# ============================================================================
+
+# ============================================================================
+# Active Directory & Domain
+# ============================================================================
+# Domain Controller (FQDN o IP)
+domain_controller: "DCCITSRV.andreani.com.ar"
+
+# Nombre del dominio
+domain_name: "andreani.com.ar"
+
+# OU donde están las computadoras para búsqueda de LAPS
+laps_ou: "OU=Computadoras,DC=andreani,DC=com,DC=ar"
+
+# OU donde buscar claves de recuperación BitLocker
+bitlocker_ou: "OU=Computadoras,DC=andreani,DC=com,DC=ar"
+
+# Timeout para operaciones de AD (segundos)
+ad_timeout: 30
+
+# ============================================================================
+# Configuración SCCM (System Center Configuration Manager)
+# ============================================================================
+# Definir aquí o sobreescribir en inventario si es necesario
+sccm_server: "MSCOCSRV.andreani.com.ar"
+sccm_site_code: "AR3"
